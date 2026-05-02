@@ -299,13 +299,14 @@ import { withPrivatePay, type PrivateAgent } from '@gabhru/private-pay'
 const baseSdk = new SDK({
   chainId: 8453,
   rpcUrl: process.env.RPC_URL,
-  signer: process.env.PRIVATE_KEY,
+  signer: process.env.AGENT_WALLET_PRIVATE_KEY,  // delegated hot key, not owner key
 })
 
 const sdk = withPrivatePay(baseSdk, {
   serviceUrl: 'https://api.gabhru.eth', // default
-  // No API key — SDK uses the same signer as agent0-ts to authenticate
-  // against IdentityRegistry.ownerOf(agentId) or getAgentWallet(agentId).
+  spendKey: process.env.SPEND_PRIVATE_KEY,  // optional, only for sweep-from-code
+  // No API key — SDK auths by signing a challenge with AGENT_WALLET_PRIVATE_KEY,
+  // verified on-chain against IdentityRegistry.getAgentWallet(agentId).
 })
 
 // Load an existing agent registered through the web wizard
