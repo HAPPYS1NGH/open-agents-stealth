@@ -24,13 +24,15 @@ library SignatureVerifier {
         ));
     }
 
-    /// @dev Recovers the signer of (request, result, expires) and returns
-    /// the recovered address along with the result bytes.
+    /// @dev Recovers the signer of (target, request, result, expires).
+    /// The on-chain `target` (computed as `address(this)` inside this call)
+    /// is part of the signed hash, which prevents cross-resolver replay:
+    /// a signature valid for resolver A cannot be reused on resolver B.
+    /// Returns the recovered address along with the result bytes.
     function verify(
         bytes calldata request,
         bytes calldata response
     ) internal view returns (address signer, bytes memory result) {
-        require(response.length >= 96, "Response too short");
         uint64 expires;
         bytes memory sig;
         (result, expires, sig) = abi.decode(response, (bytes, uint64, bytes));
