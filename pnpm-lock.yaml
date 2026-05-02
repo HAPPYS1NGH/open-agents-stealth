@@ -12,6 +12,43 @@ importers:
         specifier: ^5.6.0
         version: 5.9.3
 
+  apps/api:
+    dependencies:
+      '@hono/node-server':
+        specifier: ^1.13.7
+        version: 1.19.14(hono@4.12.16)
+      '@hono/zod-validator':
+        specifier: ^0.4.1
+        version: 0.4.3(hono@4.12.16)(zod@3.25.76)
+      '@open-agents/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
+      '@open-agents/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      hono:
+        specifier: ^4.6.9
+        version: 4.12.16
+      viem:
+        specifier: ^2.21.41
+        version: 2.48.8(typescript@5.9.3)(zod@3.25.76)
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.17
+      tsx:
+        specifier: ^4.19.2
+        version: 4.21.0
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.4
+        version: 2.1.9(@types/node@22.19.17)
+
   apps/gateway:
     dependencies:
       '@hono/node-server':
@@ -677,6 +714,12 @@ packages:
     engines: {node: '>=18.14.1'}
     peerDependencies:
       hono: ^4
+
+  '@hono/zod-validator@0.4.3':
+    resolution: {integrity: sha512-xIgMYXDyJ4Hj6ekm9T9Y27s080Nl9NXHcJkOvkXPhubOLj8hZkOL8pDnnXfvCf5xEE8Q4oMFenQUZZREUY2gqQ==}
+    peerDependencies:
+      hono: '>=3.9.0'
+      zod: ^3.19.1
 
   '@jridgewell/sourcemap-codec@1.5.5':
     resolution: {integrity: sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og==}
@@ -1608,6 +1651,11 @@ snapshots:
   '@hono/node-server@1.19.14(hono@4.12.16)':
     dependencies:
       hono: 4.12.16
+
+  '@hono/zod-validator@0.4.3(hono@4.12.16)(zod@3.25.76)':
+    dependencies:
+      hono: 4.12.16
+      zod: 3.25.76
 
   '@jridgewell/sourcemap-codec@1.5.5': {}
 
