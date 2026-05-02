@@ -41,6 +41,9 @@ export async function signGatewayResponse(
   signer: LocalAccount,
   input: GatewayResponseInput,
 ): Promise<{ signature: Hex; encodedResponse: Hex }> {
+  if (!signer.sign) {
+    throw new Error('signGatewayResponse: signer must support raw hash signing (sign({ hash }))')
+  }
   const hash = makeGatewaySignatureHash(input)
   const signature = await signer.sign({ hash })
   const encodedResponse = encodeAbiParameters(
