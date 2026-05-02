@@ -36,8 +36,9 @@ can register their agent via the REST API.
 
 ## Repo layout
 
-- `apps/gateway` — CCIP-Read offchain resolver gateway (Hono on Vercel edge runtime)
+- `apps/gateway` — CCIP-Read offchain resolver gateway (Hono on Vercel)
 - `apps/api` — REST API for dashboard + SDK auth (Hono, SIWE + JWT, deploys to Vercel)
+- `apps/dashboard` — Next.js 16 onboarding wizard + agents UI (deploys to Vercel)
 - `packages/contracts` — Solidity contracts (Foundry); `OurOffchainResolver` is the deployed wildcard resolver
 - `packages/db` — Drizzle ORM schema, migrations, and query helpers (shared by gateway + api)
 - `packages/auth` — SIWE verification, JWT mint/verify, Hono middleware (used by api)
@@ -51,7 +52,7 @@ can register their agent via the REST API.
 |---|---|---|
 | 1 | Foundation + ENS resolver | ✅ deployed to mainnet |
 | 2 | Backend foundation (Postgres, SIWE, agent CRUD) | ✅ implemented (local) |
-| 3 | Onboarding wizard | tbd |
+| 3 | Onboarding wizard | ✅ implemented (local) |
 | 4 | Stealth crypto + gateway integration | tbd |
 | 5 | Scanner + dashboard | tbd |
 | 6 | TypeScript SDK | tbd |
@@ -86,3 +87,27 @@ To verify the full mainnet CCIP-Read loop locally against an anvil fork
 ```
 
 For per-package development, see each package's README.
+
+## Deploying to Vercel (after Plan 3)
+
+Three Vercel projects, each linked to its own subdirectory:
+
+| Vercel project          | Root directory   | Purpose                       |
+| ----------------------- | ---------------- | ----------------------------- |
+| `open-agents-gateway`   | `apps/gateway`   | CCIP-Read offchain resolver   |
+| `open-agents-api`       | `apps/api`       | REST API for dashboard + SDK  |
+| `open-agents-dashboard` | `apps/dashboard` | Onboarding wizard + agents UI |
+
+For each project, set the same env vars documented in `.env.example`. The
+dashboard additionally needs `NEXT_PUBLIC_*` variants — Vercel inlines those
+at build time.
+
+```bash
+# (one-time per project) link each subdirectory:
+cd apps/dashboard && vercel link --project open-agents-dashboard && cd ../..
+
+# preview / production deploys
+cd apps/dashboard && vercel --prod && cd ../..
+cd apps/api && vercel --prod && cd ../..
+cd apps/gateway && vercel --prod && cd ../..
+```
