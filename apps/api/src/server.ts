@@ -4,6 +4,7 @@ import { cors } from 'hono/cors'
 import { env } from './env.js'
 import { createDb } from '@open-agents/db'
 import { authRoute } from './routes/auth.js'
+import { meRoute } from './routes/me.js'
 
 const app = new Hono()
 
@@ -11,8 +12,9 @@ app.use('*', cors({ origin: '*', allowMethods: ['GET', 'POST', 'PATCH', 'OPTIONS
 app.get('/health', (c) => c.json({ ok: true, service: 'api' }))
 
 app.route('/', authRoute)
+app.route('/', meRoute)
 
-// Additional routes wired in Tasks 10–11.
+// Agents route wired in Task 11.
 
 export const db = createDb(env.DATABASE_URL)
 
