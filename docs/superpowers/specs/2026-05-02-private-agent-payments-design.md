@@ -159,6 +159,18 @@ ERC-5564 with secp256k1 (scheme id `1`), using the **Fluidkey two-tier pattern**
 
 **Why Safes and not raw EOAs:** EOAs at fresh stealth addresses have no ETH for gas. Forcing the agent to pre-fund them defeats privacy (every funded EOA links back to a treasury). Safes at predictable CREATE2 addresses receive funds passively, and their first execution can be sponsored by a paymaster. Net effect: zero ETH ever needs to land at a stealth address; gas is paid in the agent's domain through account abstraction.
 
+### 4.3 ERC-8004 registration access control (relevant facts)
+
+Verified directly from `IdentityRegistryUpgradeable.sol`:
+
+- `register()` (and its two overloads) is **fully permissionless** — `external`, no modifiers, no requires, no signature checks. Anyone can call it.
+- `msg.sender` becomes both the **NFT owner** (`_safeMint(msg.sender, agentId)`) and the **initial `agentWallet`** (auto-set in storage). There is no parameter to register on behalf of another address.
+- The contract is **not ERC-2771 compliant**: no `_msgSender()` override, no `trustedForwarder` field. No meta-tx path.
+- There is **no atomic `registerWithWallet(...)` function**. Combining registration with delegation requires two separate transactions.
+- `setAgentWallet` requires **both** authorizations: `msg.sender` is the NFT owner (or approved operator), *and* the new wallet has signed an EIP-712 message consenting to be bound. Defends against either side unilaterally changing the binding.
+
+**Consequence for our design:** the dev's EOA must sign `register()` directly. To delegate runtime authority to a hot key, the same EOA signs a second tx (`setAgentWallet`). Both paid in Base gas (~$0.005 each, ~$0.01 total). No paymaster sponsorship is possible without ERC-4337.
+
 ### 4.4 Three-key model — owner / agent / spend
 
 The agent has three logically distinct keys, each with a different role and threat profile. They MUST be kept separate.
@@ -179,12 +191,16 @@ The agent has three logically distinct keys, each with a different role and thre
 
 ### 4.2.1 Gas and paymaster
 
-- **Owner wallet** during onboarding: recommend Coinbase Smart Wallet (already paymaster-integrated on Base for Coinbase-sponsored apps); MetaMask + EOA also supported with normal gas.
-- **Stealth Safe deployment + sweep**: sponsored via Base's Coinbase paymaster (or Pimlico — both work; Coinbase preferred since the app targets Base agents). Daily caps configured on our paymaster credentials to bound abuse.
-- **Treasury Safe withdrawal to dev's personal wallet**: sponsored same way.
+We **do not use ERC-4337 / Smart Wallet** for the owner side. The 8004 IdentityRegistry isn't ERC-2771-compliant, so meta-tx sponsorship of `register()` would require pulling in full Smart Wallet plumbing for marginal benefit on Base (sub-cent gas). EOA-only owner flow keeps the wizard simple.
+
+- **Owner wallet during onboarding**: any EOA wallet (MetaMask, Rabby, WalletConnect, hardware). Pays Base gas directly.
+- **Onboarding cost**: ~$0.005 for `register()` + ~$0.005 for `setAgentWallet()` ≈ **~$0.01 total**. If the dev picks "solo mode" they skip the second tx and pay ~$0.005.
+- **Stealth Safe deployment + sweep**: paid by the agent's own runtime wallet (the agent wallet hot key). Each first-sweep deploys the Safe and transfers in one tx; ~$0.005 on Base. Subsequent sweeps from the same Safe (rare with one-time addresses) ~$0.002.
+- **Treasury Safe withdrawal to dev's personal wallet**: paid by the agent wallet hot key. ~$0.002.
+- **Optional paymaster sponsorship for the agent's runtime txs (sweeps)**: roadmap, not v1. Stealth Safe transactions are by Safes, which are ERC-4337-friendly, so sponsoring them is cleanly additive.
 - **Sender side** (USDC transfer + announce): sender's wallet pays normally; not our concern.
 
-Cost ceiling per agent for normal usage: effectively $0 with paymaster, ~$0.10 of Base gas raw without it.
+Cost ceiling per agent for v1 lifetime: typically <$1 of Base gas across hundreds of payments.
 
 ### 4.3 Why this is "Fluidkey for agents," not Fluidkey
 
@@ -197,8 +213,8 @@ Cost ceiling per agent for normal usage: effectively $0 with paymaster, ~$0.10 o
 | Resolver source        | Closed                            | Open-source (we publish)                                      |
 | Crypto kit             | Their own (`fluidkey-stealth-account-kit`) | `@scopelift/stealth-address-sdk` (vendor-neutral, viem-native) |
 | Receiving address      | 1/1 Safe smart account            | 1/1 Safe smart account (same pattern, our deployment)         |
-| Onboarding wallet      | Privy / EOA                       | Coinbase Smart Wallet recommended; MetaMask supported         |
-| Gas model              | Sponsored (paymaster)             | Sponsored (Base Coinbase paymaster); raw fallback             |
+| Onboarding wallet      | Privy / EOA                       | Any standard EOA wallet (MetaMask, Rabby, WalletConnect)      |
+| Gas model              | Sponsored (paymaster)             | EOA pays directly (~$0.01 total Base gas at registration)     |
 | Scanner custody (v1)   | Custodial                         | Custodial                                                     |
 | Scanner custody (v2)   | N/A                               | Hybrid (view-tag pre-filter, agent-side decrypt) — roadmap    |
 | Receipts               | N/A                               | EIP-712 signed receipts for opt-in reputation                 |
@@ -338,8 +354,8 @@ Internally, `agent.signReceipt` either signs locally with the agent owner's key 
 
 ### 6.1 Onboarding (one-time, ~90 seconds)
 
-1. Dev visits `gabhru.eth` (or our marketing URL), clicks Connect Wallet. Coinbase Smart Wallet recommended (gasless onboarding via Base paymaster); MetaMask + EOA supported (~$0.01 in raw gas on Base).
-2. SIWE auth.
+1. Dev visits `gabhru.eth.limo` (or our marketing URL), clicks Connect Wallet. Any standard EOA wallet (MetaMask, Rabby, WalletConnect, hardware). Total Base gas across the wizard: ~$0.01.
+2. SIWE auth (signed message, no gas).
 3. Wizard step 1: name. e.g., `mybot`. Available? → reserve in DB.
 4. Wizard step 2: client-side keygen.
    - `viewPrivKey` and `spendPrivKey` generated via WebCrypto.
@@ -365,7 +381,7 @@ Internally, `agent.signReceipt` either signs locally with the agent owner's key 
    Dev signs `IdentityRegistry.register(agentURI)` via `agent0-ts.registerIPFS()`. Returns `agentId`.
    Backend writes the `agent-registration[...]`, `agent-context`, `agent-endpoint[*]`, and `stealth-meta` records into our resolver's data store (so subsequent CCIP-Read queries return them).
 6. Wizard step 4: deploy a 1/1 Safe owned by the dev's EOA via Safe Protocol Kit. Persist Safe address as `treasurySafe`.
-7. **Generate the agent wallet hot key** (fresh EOA, client-side). Build the `setAgentWallet(agentId, hotKey, deadline, hotKeySig)` call: hot key signs the EIP-712 authorization, owner wallet signs the tx. One sponsored user-op. After confirmation, the chain says: `getAgentWallet(1865) == 0xHot…`.
+7. **Generate the agent wallet hot key** (fresh EOA, client-side). Hot key signs the EIP-712 authorization off-chain (instant, no gas). Owner wallet signs and broadcasts `setAgentWallet(agentId, hotKey, deadline, hotKeySig)` — second on-chain tx, ~$0.005 in Base gas. After confirmation, `getAgentWallet(1865) == hotKey`. *Skipped if the dev picked "solo mode" earlier — `getAgentWallet` then equals `ownerOf` and the SDK auths against the owner EOA's key.*
 8. Display setup-complete screen with downloadable `.env`:
    ```
    AGENT_ID=8453:1865
