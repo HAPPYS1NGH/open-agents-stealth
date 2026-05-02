@@ -139,14 +139,34 @@ This is sufficient for Threat 1. Threat 2 (sophisticated chain-walker) requires 
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 4.2 Stealth scheme
+### 4.2 Stealth scheme — EOA signer + Safe smart account per payment
 
-ERC-5564 with secp256k1 (scheme id `1`):
+ERC-5564 with secp256k1 (scheme id `1`), using the **Fluidkey two-tier pattern** so every receiving address is a smart account that supports gas sponsorship:
 
-- Each agent has a **stealth meta-address** = compressed `spendPubKey` || compressed `viewPubKey` (66 bytes raw, 132 hex chars; `st:` prefix optional per spec).
+- Each agent has a **stealth meta-address** = compressed `spendPubKey` || compressed `viewPubKey` (66 bytes raw, 132 hex chars).
 - `spendPrivKey` is generated **client-side** in the browser during onboarding, encrypted with a dev-supplied passphrase + WebCrypto, and stored only on the dev's machine. Never sent to our backend in any form.
 - `viewPrivKey` is generated client-side, then sent to our backend over TLS, **encrypted at rest** with a backend KMS key. It is required for our scanner to identify incoming payments.
-- For each resolution, our gateway generates a fresh ephemeral keypair `(r, R)` where `R = r·G`, computes the shared secret `s = r·viewPubKey`, derives the stealth address `addr = keccak(s)·G + spendPubKey`, and returns `addr` to the resolver client. The corresponding `R` and `viewTag` are emitted by the **sender** at payment time via the ERC-5564 `Announcer.announce(...)`.
+
+**Per resolution / payment:**
+
+1. Gateway generates ephemeral keypair `(r, R)` where `R = r·G`.
+2. Computes shared secret `s = r·viewPubKey`.
+3. Derives **stealth EOA** address `addrEOA = keccak(s)·G + spendPubKey`. *This EOA never holds funds; it is only a signer.*
+4. Computes **stealth Safe** address via CREATE2: deterministic 1/1 Safe owned by `addrEOA`. Use `@scopelift/stealth-address-sdk` or port `fluidkey-stealth-account-kit`'s `predictStealthSafeAddress`. *This Safe address is what the gateway returns to the resolver client.*
+5. Sender transfers USDC to `addrSafe` and emits `Announcer.announce(1, addrSafe, R, viewTag||metadata)` on Base.
+6. The Safe contract does **not need to be deployed at receive time** — its address is predictable from CREATE2, and USDC happily transfers to a non-deployed address (funds sit at the address).
+7. On first withdrawal from a particular stealth address, the SDK deploys the Safe (CREATE2) and immediately executes a `transfer` from the Safe to the agent's treasury Safe. Both the deployment and the transfer are batched into a single user-op sponsored by a paymaster. Subsequent withdrawals (if more arrives at the same Safe — shouldn't happen with one-time addresses, but possible) skip the deployment step.
+
+**Why Safes and not raw EOAs:** EOAs at fresh stealth addresses have no ETH for gas. Forcing the agent to pre-fund them defeats privacy (every funded EOA links back to a treasury). Safes at predictable CREATE2 addresses receive funds passively, and their first execution can be sponsored by a paymaster. Net effect: zero ETH ever needs to land at a stealth address; gas is paid in the agent's domain through account abstraction.
+
+### 4.2.1 Gas and paymaster
+
+- **Owner wallet** during onboarding: recommend Coinbase Smart Wallet (already paymaster-integrated on Base for Coinbase-sponsored apps); MetaMask + EOA also supported with normal gas.
+- **Stealth Safe deployment + sweep**: sponsored via Base's Coinbase paymaster (or Pimlico — both work; Coinbase preferred since the app targets Base agents). Daily caps configured on our paymaster credentials to bound abuse.
+- **Treasury Safe withdrawal to dev's personal wallet**: sponsored same way.
+- **Sender side** (USDC transfer + announce): sender's wallet pays normally; not our concern.
+
+Cost ceiling per agent for normal usage: effectively $0 with paymaster, ~$0.10 of Base gas raw without it.
 
 ### 4.3 Why this is "Fluidkey for agents," not Fluidkey
 
@@ -158,6 +178,9 @@ ERC-5564 with secp256k1 (scheme id `1`):
 | Subname namespace      | `*.fkey.id` / `*.fkey.eth`        | `*.gabhru.eth`                                                |
 | Resolver source        | Closed                            | Open-source (we publish)                                      |
 | Crypto kit             | Their own (`fluidkey-stealth-account-kit`) | `@scopelift/stealth-address-sdk` (vendor-neutral, viem-native) |
+| Receiving address      | 1/1 Safe smart account            | 1/1 Safe smart account (same pattern, our deployment)         |
+| Onboarding wallet      | Privy / EOA                       | Coinbase Smart Wallet recommended; MetaMask supported         |
+| Gas model              | Sponsored (paymaster)             | Sponsored (Base Coinbase paymaster); raw fallback             |
 | Scanner custody (v1)   | Custodial                         | Custodial                                                     |
 | Scanner custody (v2)   | N/A                               | Hybrid (view-tag pre-filter, agent-side decrypt) — roadmap    |
 | Receipts               | N/A                               | EIP-712 signed receipts for opt-in reputation                 |
@@ -294,7 +317,7 @@ Internally, `agent.signReceipt` either signs locally with the agent owner's key 
 
 ### 6.1 Onboarding (one-time, ~90 seconds)
 
-1. Dev visits `gabhru.eth` (or our marketing URL), clicks Connect Wallet.
+1. Dev visits `gabhru.eth` (or our marketing URL), clicks Connect Wallet. Coinbase Smart Wallet recommended (gasless onboarding via Base paymaster); MetaMask + EOA supported (~$0.01 in raw gas on Base).
 2. SIWE auth.
 3. Wizard step 1: name. e.g., `mybot`. Available? → reserve in DB.
 4. Wizard step 2: client-side keygen.
@@ -425,13 +448,16 @@ payments (
   agent_id uuid fk,
   announcement_block bigint,
   announcement_log_index int,
-  stealth_address text,
+  stealth_safe_address text,       -- the CREATE2 Safe address (recipient)
+  stealth_eoa_address text,        -- the derived EOA that will sign sweeps
   ephemeral_pubkey bytea,
   view_tag smallint,
   asset text,                      -- 'USDC'
   amount numeric(78, 0),
   sender_address text,
   tx_hash text,
+  swept boolean default false,     -- has the agent withdrawn this payment?
+  swept_tx_hash text,
   detected_at timestamptz,
   unique(announcement_block, announcement_log_index)
 )
