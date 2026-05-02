@@ -144,8 +144,9 @@ This is sufficient for Threat 1. Threat 2 (sophisticated chain-walker) requires 
 ERC-5564 with secp256k1 (scheme id `1`), using the **Fluidkey two-tier pattern** so every receiving address is a smart account that supports gas sponsorship:
 
 - Each agent has a **stealth meta-address** = compressed `spendPubKey` || compressed `viewPubKey` (66 bytes raw, 132 hex chars).
-- `spendPrivKey` is generated **client-side** in the browser during onboarding, encrypted with a dev-supplied passphrase + WebCrypto, and stored only on the dev's machine. Never sent to our backend in any form.
-- `viewPrivKey` is generated client-side, then sent to our backend over TLS, **encrypted at rest** with a backend KMS key. It is required for our scanner to identify incoming payments.
+- `spendPrivKey` and `viewPrivKey` are **deterministically derived from a single signature by the owner EOA**, using `fluidkey-stealth-account-kit`'s `generateKeysFromSignature` (Dedaub-audited, deployed in production by Fluidkey). The dev signs a fixed message — `"gabhru.eth: derive stealth keys for agent on Base mainnet (v1)"` — once during the wizard. The signature bytes feed a deterministic KDF; same EOA + same message always yields the same `(spendPrivKey, viewPrivKey)` pair. **No random keygen, no passphrase, no localStorage encryption.** Lost the `.env`? Re-open the wizard, connect the same EOA, sign the same message → keys regenerate.
+- `spendPrivKey` stays in browser memory during the wizard and gets written into the dev's downloaded `.env` if they opt in to sweeping from code; otherwise the dashboard re-derives it from the EOA signature on demand at sweep time and never persists it.
+- `viewPrivKey` is derived in the same step (same KDF, different output slot), then sent to our backend over TLS, **encrypted at rest** with a backend KMS key. It is required for our scanner to identify incoming payments.
 
 **Per resolution / payment:**
 
@@ -211,7 +212,8 @@ Cost ceiling per agent for v1 lifetime: typically <$1 of Base gas across hundred
 | Reputation             | None                              | ERC-8004 reputation registry, trust-based + opt-in confirmation |
 | Subname namespace      | `*.fkey.id` / `*.fkey.eth`        | `*.gabhru.eth`                                                |
 | Resolver source        | Closed                            | Open-source (we publish)                                      |
-| Crypto kit             | Their own (`fluidkey-stealth-account-kit`) | `@scopelift/stealth-address-sdk` (vendor-neutral, viem-native) |
+| Crypto kit             | Their own (`fluidkey-stealth-account-kit`) | `fluidkey-stealth-account-kit` (key derivation) + `@scopelift/stealth-address-sdk` (announcement utilities) |
+| Key generation         | Random + passphrase + cloud sync  | Deterministic from owner EOA signature (audited Fluidkey pattern) — no passphrase, recoverable by re-signing |
 | Receiving address      | 1/1 Safe smart account            | 1/1 Safe smart account (same pattern, our deployment)         |
 | Onboarding wallet      | Privy / EOA                       | Any standard EOA wallet (MetaMask, Rabby, WalletConnect)      |
 | Gas model              | Sponsored (paymaster)             | EOA pays directly (~$0.01 total Base gas at registration)     |
@@ -295,7 +297,7 @@ For v1 we scan all announcements naively (O(announcements × agents) per block, 
 - **`/`** — marketing page; "Connect wallet" → SIWE → routes to onboard or dashboard.
 - **`/onboard`** — 4-step wizard:
   1. Pick agent name (subname under `gabhru.eth`). Live availability check.
-  2. Generate stealth keys client-side. Show meta-address, save spend-priv-key encrypted to localStorage with user-chosen passphrase, send view-priv-key encrypted-in-transit to backend.
+  2. Derive stealth keys client-side via Fluidkey-style signature: dev signs the fixed derivation message with their EOA (no gas, just a popup), `fluidkey-stealth-account-kit.generateKeysFromSignature` produces `(spendPrivKey, viewPrivKey)` deterministically. Show meta-address, send `viewPrivKey` encrypted-in-transit to backend, hold `spendPrivKey` in memory until final `.env` download.
   3. Sign agent registration tx via `agent0-ts` (mints ERC-8004 NFT on Base, sets `agentURI` to IPFS-pinned registration JSON, publishes ENS records).
   4. Deploy consolidation Safe (1/1 owned by the dev's EOA). Display API key + downloadable `.env`.
 - **`/dashboard`** — payments table, reputation summary (via `agent0-ts.getReputationSummary`), per-payment "publicly confirm" toggle, withdraw button.
@@ -358,9 +360,10 @@ Internally, `agent.signReceipt` either signs locally with the agent owner's key 
 2. SIWE auth (signed message, no gas).
 3. Wizard step 1: name. e.g., `mybot`. Available? → reserve in DB.
 4. Wizard step 2: client-side keygen.
-   - `viewPrivKey` and `spendPrivKey` generated via WebCrypto.
-   - Compute `viewPubKey` and `spendPubKey`.
-   - User chooses a local passphrase. Encrypt `spendPrivKey` with PBKDF2(passphrase) + AES-GCM, save to localStorage.
+   - Wizard prompts the dev to sign the fixed derivation message — `"gabhru.eth: derive stealth keys for agent on Base mainnet (v1)"` — with their owner EOA. No gas, just a wallet popup.
+   - `fluidkey-stealth-account-kit.generateKeysFromSignature(sig)` produces `(spendPrivKey, viewPrivKey)` deterministically. Same EOA + same message always yields the same keys → built-in recovery if `.env` is lost.
+   - Compute `viewPubKey` and `spendPubKey` from the derived privates.
+   - No passphrase, no localStorage encryption — `spendPrivKey` lives only in browser memory until the wizard's final `.env` download (or is re-derived on demand by the dashboard when needed).
    - Send `viewPrivKey` to backend over TLS. Backend encrypts with KMS data key, stores.
 5. Wizard step 3: registration. Backend pins a registration JSON to IPFS with:
    ```json
@@ -390,7 +393,7 @@ Internally, `agent.signReceipt` either signs locally with the agent owner's key 
    AGENT_WALLET_PRIVATE_KEY=0x...   # delegated hot key, rotatable
    SPEND_PRIVATE_KEY=0x...           # optional, only for sweep-from-code
    ```
-   We do not retain plaintext copies of the agent wallet or spend keys. The dashboard offers re-download (decrypt-with-passphrase) for the spend key only; the agent wallet key, if lost, is rotated by signing a new `setAgentWallet` from the owner wallet.
+   We do not retain plaintext copies of the agent wallet or spend keys. Spend key recovery is automatic: re-open the wizard or dashboard with the same EOA, re-sign the fixed derivation message, the same `spendPrivKey` regenerates. The agent wallet key, if lost, is rotated by signing a new `setAgentWallet` from the owner wallet (a fresh hot key replaces the lost one — old payments are recoverable via the spend key, which is unaffected).
 
 ### 6.2 Receive payment
 
@@ -532,6 +535,7 @@ receipts (
 - **Scanner cost on Base.** ERC-5564 Announcer event volume on Base may be non-trivial. Index efficiently, use viem's `watchContractEvent` with checkpointing.
 - **Receipt forgery within agent owner's authority.** A malicious agent owner can sign receipts they didn't earn. This degrades reputation trust. Mitigation: receipts include `clientAddress`, and the reputation registry binds `clientAddress` to `msg.sender` of `giveFeedback`. So an owner can only forge receipts for clients who actually called `giveFeedback`.
 - **Custodial view-key risk.** v1 stores view keys encrypted but custodially. We can see all incoming payments. Document this prominently. Roadmap to hybrid in v2.
+- **NFT transfer rotates the stealth meta-address.** Because stealth keys derive from the *current owner's* EOA signature, transferring the ERC-721 to a new owner means: their EOA derives a different `(spendPriv, viewPriv)`, the meta-address published in our resolver rotates, new payments flow under the new owner's keys. Old stealth payments stay recoverable by the previous owner only. This is the correct privacy semantic (no implicit handover of unswept funds) but devs should sweep before transferring.
 - **Reputation `proofOfPayment` extension.** ERC-8004 spec defines `proofOfPayment` as `{fromAddress, toAddress, chainId, txHash}`. We replace it with our `signedReceipt` field in the off-chain feedback file. Spec says off-chain file is extensible; this is compatible. We submit a minor ERC-8004 comment thread proposing `signedReceipt` as a standard extension after the hackathon.
 
 ---
