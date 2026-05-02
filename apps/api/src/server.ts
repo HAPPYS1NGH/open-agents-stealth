@@ -5,6 +5,7 @@ import { env } from './env.js'
 import { createDb } from '@open-agents/db'
 import { authRoute } from './routes/auth.js'
 import { meRoute } from './routes/me.js'
+import { agentsRoute } from './routes/agents.js'
 
 const app = new Hono()
 
@@ -13,8 +14,7 @@ app.get('/health', (c) => c.json({ ok: true, service: 'api' }))
 
 app.route('/', authRoute)
 app.route('/', meRoute)
-
-// Agents route wired in Task 11.
+app.route('/', agentsRoute)
 
 export const db = createDb(env.DATABASE_URL)
 
