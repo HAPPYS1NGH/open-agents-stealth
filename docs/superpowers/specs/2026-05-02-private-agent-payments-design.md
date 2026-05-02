@@ -215,7 +215,7 @@ We deploy zero contracts on Base. We integrate via `agent0-ts` (calls `IdentityR
 
 **Auth:**
 - Dashboard: SIWE (`siwe` v3 npm package) — challenge/sign/verify against the agent owner's EOA.
-- SDK: API key (random 32-byte token, hashed at rest) issued during onboarding, scoped to one agent.
+- SDK: **wallet-based session auth, not API keys.** The SDK already requires a signer for `agent0-ts` (registration, receipt signing, withdrawals). We reuse it. Flow: SDK calls `POST /api/sdk/challenge`, signs the returned nonce, backend recovers the signer and checks `signer === IdentityRegistry.ownerOf(agentId)` OR `signer === IdentityRegistry.getAgentWallet(agentId)`, returns a 24h JWT. SDK uses the JWT for REST + WebSocket; refreshes automatically. Rationale: zero new secrets in the dev's `.env`, on-chain verifiable, supports the 8004 delegated-wallet pattern out of the box, aligns with the emerging SIWA convention.
 
 ### 5.4 Scanner worker — payment matching
 
@@ -260,8 +260,9 @@ const baseSdk = new SDK({
 })
 
 const sdk = withPrivatePay(baseSdk, {
-  apiKey: process.env.PRIVATEPAY_API_KEY,
   serviceUrl: 'https://api.gabhru.eth', // default
+  // No API key — SDK uses the same signer as agent0-ts to authenticate
+  // against IdentityRegistry.ownerOf(agentId) or getAgentWallet(agentId).
 })
 
 // Load an existing agent registered through the web wizard
@@ -320,7 +321,7 @@ Internally, `agent.signReceipt` either signs locally with the agent owner's key 
    Dev signs `IdentityRegistry.register(agentURI)` via `agent0-ts.registerIPFS()`. Returns `agentId`.
    Backend writes the `agent-registration[...]`, `agent-context`, `agent-endpoint[*]`, and `stealth-meta` records into our resolver's data store (so subsequent CCIP-Read queries return them).
 6. Wizard step 4: deploy a 1/1 Safe owned by the dev's EOA via Safe Protocol Kit. Persist Safe address as `treasurySafe`.
-7. Generate API key, display once with copy button. Display `.env.example` snippet.
+7. Display setup-complete screen with `.env.example` snippet (`AGENT_ID`, `RPC_URL`, `PRIVATEPAY_SERVICE_URL`, `PRIVATE_KEY` — dev's responsibility, never sent to us). No API key issued. The SDK authenticates by signing a challenge with the dev's signer at runtime.
 
 ### 6.2 Receive payment
 
@@ -385,10 +386,12 @@ Both demos run end-to-end on Base mainnet with real USDC.
 - `POST /api/agents/me/withdraw` — drafts a tx for the dev to sign.
 - `POST /api/agents/me/receipts/:paymentId/confirm` — drafts EIP-712 receipt, returns hash to sign; on signature, calls `appendResponse`.
 
-### 8.3 SDK (API-key-authed)
+### 8.3 SDK (wallet-authed via JWT)
 
-- `GET /api/sdk/me` — returns agent config.
-- `WS /ws/sdk?apiKey=...` — server pushes `{ type: 'payment', payload }` events.
+- `POST /api/sdk/challenge` — body: `{ agentId }`. Returns `{ nonce, message, expiresAt }`. The message includes `agentId`, nonce, domain, expiry, in a SIWE-like format.
+- `POST /api/sdk/session` — body: `{ agentId, message, signature }`. Backend recovers signer, checks `signer === ownerOf(agentId) || signer === getAgentWallet(agentId)` on `IdentityRegistry`. Returns `{ jwt, expiresAt }` (24h TTL).
+- `GET /api/sdk/me` — `Authorization: Bearer <jwt>`. Returns agent config.
+- `WS /ws/sdk` — connect with `Authorization: Bearer <jwt>` header (or `?token=<jwt>` for browsers). Server pushes `{ type: 'payment', payload }` events.
 - `POST /api/sdk/sign-receipt` — fallback for SDK without local signer; out of scope v1.
 
 ### 8.4 SDK runtime API (TypeScript)
@@ -410,10 +413,12 @@ agents (
   view_privkey_encrypted bytea not null,
   view_privkey_kms_keyid text not null,
   treasury_safe_address text,
-  api_key_hash bytea not null,
   created_at timestamptz,
   updated_at timestamptz
 )
+-- No api_keys table. SDK auth is wallet-based: backend issues short-lived
+-- JWTs after verifying a signature against IdentityRegistry.ownerOf(agentId)
+-- or getAgentWallet(agentId). JWT signing key rotates independently.
 
 payments (
   id uuid pk,
