@@ -1,0 +1,26 @@
+{
+  "name": "@open-agents/auth",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "echo 'no-op'"
+  },
+  "dependencies": {
+    "hono": "^4.6.9",
+    "jose": "^5.9.6",
+    "siwe": "^3.0.0",
+    "viem": "^2.21.41"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.4"
+  }
+}
