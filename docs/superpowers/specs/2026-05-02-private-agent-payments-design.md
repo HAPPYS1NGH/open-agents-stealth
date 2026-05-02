@@ -159,6 +159,24 @@ ERC-5564 with secp256k1 (scheme id `1`), using the **Fluidkey two-tier pattern**
 
 **Why Safes and not raw EOAs:** EOAs at fresh stealth addresses have no ETH for gas. Forcing the agent to pre-fund them defeats privacy (every funded EOA links back to a treasury). Safes at predictable CREATE2 addresses receive funds passively, and their first execution can be sponsored by a paymaster. Net effect: zero ETH ever needs to land at a stealth address; gas is paid in the agent's domain through account abstraction.
 
+### 4.4 Three-key model — owner / agent / spend
+
+The agent has three logically distinct keys, each with a different role and threat profile. They MUST be kept separate.
+
+| Key | Origin | Lives where | Used for | Rotatable | Compromise impact |
+|---|---|---|---|---|---|
+| **Owner key** | Dev's existing wallet (Coinbase Smart Wallet, MetaMask, etc.) | Hardware/passkey/extension. Never in `.env`. | One-time wizard signing, dashboard auth, rotating the agent key, transferring agent NFT. | Implicitly via NFT transfer. | Total — agent ownership lost. |
+| **Agent wallet key** | Fresh EOA generated client-side during wizard. Authorized on-chain via `IdentityRegistry.setAgentWallet(agentId, hotKey, deadline, hotKeySig)`. | The dev's `.env` as `AGENT_WALLET_PRIVATE_KEY`. | SDK runtime auth (signing challenges), EIP-712 receipt signing, future agent-to-agent SIWA. | Yes — owner key signs `setAgentWallet(newKey, ...)` from dashboard, ~$0.05 sponsored. | Attacker can read payment events for this agent, forge receipts. Cannot move the NFT, cannot reach owner wallet, cannot drain stealth Safes. |
+| **Spend key** | Fresh secp256k1 key generated client-side during wizard. Public half registered in our resolver as part of the stealth meta-address. | The dev's `.env` as `SPEND_PRIVATE_KEY` *only if* they sweep from code; otherwise stays browser-encrypted and they sweep from the dashboard. | Deriving each per-payment stealth EOA private key (which controls the Safe holding the funds). | No — would require re-creating the agent, since the public half is in the stealth meta-address. | Attacker can drain all current and future stealth Safes for this agent. Cannot move the NFT or reach owner wallet. |
+
+**Why three keys, not one or two:**
+
+- Combining owner and agent: leaking the runtime key would lose the NFT and dashboard control. Bad.
+- Combining agent and spend: rotating the agent key would lose access to all stealth funds (since stealth derivation depends on the spend key). Rotation becomes destructive. Bad.
+- Three keys gives clean compromise containment and clean rotation semantics.
+
+**Solo-dev simplification:** for hobby agents, the wizard offers a "use my owner key as agent wallet too" toggle. We skip `setAgentWallet`, the SDK auths against `ownerOf`, and the dev exports their owner EOA private key (only viable with MetaMask + EOA owner; not with Coinbase Smart Wallet). Documented as **not recommended for production**, with a one-click "promote to delegated wallet" upgrade path in the dashboard.
+
 ### 4.2.1 Gas and paymaster
 
 - **Owner wallet** during onboarding: recommend Coinbase Smart Wallet (already paymaster-integrated on Base for Coinbase-sponsored apps); MetaMask + EOA also supported with normal gas.
@@ -237,8 +255,10 @@ We deploy zero contracts on Base. We integrate via `agent0-ts` (calls `IdentityR
 **Encryption:** view private keys are encrypted with envelope encryption — a per-agent data key is encrypted by a master KMS key (initially Vercel KV-stored, rotatable). Decryption happens only inside the scanner worker process at scan time.
 
 **Auth:**
-- Dashboard: SIWE (`siwe` v3 npm package) — challenge/sign/verify against the agent owner's EOA.
-- SDK: **wallet-based session auth, not API keys.** The SDK already requires a signer for `agent0-ts` (registration, receipt signing, withdrawals). We reuse it. Flow: SDK calls `POST /api/sdk/challenge`, signs the returned nonce, backend recovers the signer and checks `signer === IdentityRegistry.ownerOf(agentId)` OR `signer === IdentityRegistry.getAgentWallet(agentId)`, returns a 24h JWT. SDK uses the JWT for REST + WebSocket; refreshes automatically. Rationale: zero new secrets in the dev's `.env`, on-chain verifiable, supports the 8004 delegated-wallet pattern out of the box, aligns with the emerging SIWA convention.
+- Dashboard: SIWE (`siwe` v3 npm package) — challenge/sign/verify against the **owner wallet** (the EOA / smart account that owns the ERC-721 NFT).
+- SDK: **wallet-based session auth using a delegated *agent wallet* hot key, not the owner wallet.** Flow: SDK calls `POST /api/sdk/challenge`, signs the returned nonce with the agent-wallet hot key, backend recovers the signer and checks `signer === IdentityRegistry.getAgentWallet(agentId)` (preferred) or `signer === IdentityRegistry.ownerOf(agentId)` (fallback for solo-dev mode where the same key is used for everything), returns a 24h JWT. SDK uses the JWT for REST + WebSocket; refreshes automatically.
+
+See §4.4 for the three-key model that this auth path implements.
 
 ### 5.4 Scanner worker — payment matching
 
@@ -344,7 +364,16 @@ Internally, `agent.signReceipt` either signs locally with the agent owner's key 
    Dev signs `IdentityRegistry.register(agentURI)` via `agent0-ts.registerIPFS()`. Returns `agentId`.
    Backend writes the `agent-registration[...]`, `agent-context`, `agent-endpoint[*]`, and `stealth-meta` records into our resolver's data store (so subsequent CCIP-Read queries return them).
 6. Wizard step 4: deploy a 1/1 Safe owned by the dev's EOA via Safe Protocol Kit. Persist Safe address as `treasurySafe`.
-7. Display setup-complete screen with `.env.example` snippet (`AGENT_ID`, `RPC_URL`, `PRIVATEPAY_SERVICE_URL`, `PRIVATE_KEY` — dev's responsibility, never sent to us). No API key issued. The SDK authenticates by signing a challenge with the dev's signer at runtime.
+7. **Generate the agent wallet hot key** (fresh EOA, client-side). Build the `setAgentWallet(agentId, hotKey, deadline, hotKeySig)` call: hot key signs the EIP-712 authorization, owner wallet signs the tx. One sponsored user-op. After confirmation, the chain says: `getAgentWallet(1865) == 0xHot…`.
+8. Display setup-complete screen with downloadable `.env`:
+   ```
+   AGENT_ID=8453:1865
+   RPC_URL=https://mainnet.base.org
+   PRIVATEPAY_SERVICE_URL=https://api.gabhru.eth
+   AGENT_WALLET_PRIVATE_KEY=0x...   # delegated hot key, rotatable
+   SPEND_PRIVATE_KEY=0x...           # optional, only for sweep-from-code
+   ```
+   We do not retain plaintext copies of the agent wallet or spend keys. The dashboard offers re-download (decrypt-with-passphrase) for the spend key only; the agent wallet key, if lost, is rotated by signing a new `setAgentWallet` from the owner wallet.
 
 ### 6.2 Receive payment
 
