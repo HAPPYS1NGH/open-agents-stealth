@@ -24,7 +24,7 @@ await client.getEnsAddress({ name: "test.gabhru.eth" })
 | | |
 |---|---|
 | ENS parent | [`gabhru.eth`](https://app.ens.domains/gabhru.eth) |
-| Resolver contract | [`0x6c11e3cb958c84cfd339123a2b9c4196c755f777`](https://etherscan.io/address/0x6c11e3cb958c84cfd339123a2b9c4196c755f777) |
+| Resolver contract (verified) | [`0x6c11e3cb958c84cfd339123a2b9c4196c755f777`](https://etherscan.io/address/0x6c11e3cb958c84cfd339123a2b9c4196c755f777#code) |
 | Resolver deploy tx | [`0x969bd6…056c6c`](https://etherscan.io/tx/0x969bd60bc389c38623775aef6eb271bfdf3e9828db9f673bdcc7a08e17056c6c) |
 | `gabhru.eth` setResolver tx | [`0xaa5cae…02a33258`](https://etherscan.io/tx/0xaa5cae905d6d436cdef5c502bb665e539fd836c33ba22548bbc089dd02a33258) |
 | Gateway (Vercel, edge runtime) | [open-agents-gateway-happys1nghs-projects.vercel.app](https://open-agents-gateway-happys1nghs-projects.vercel.app/health) |

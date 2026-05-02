@@ -14,7 +14,7 @@ Solidity contracts for Open Agents private payments.
 
 | | |
 |---|---|
-| Resolver address | [`0x6c11e3cb958c84cfd339123a2b9c4196c755f777`](https://etherscan.io/address/0x6c11e3cb958c84cfd339123a2b9c4196c755f777) |
+| Resolver address (verified source) | [`0x6c11e3cb958c84cfd339123a2b9c4196c755f777`](https://etherscan.io/address/0x6c11e3cb958c84cfd339123a2b9c4196c755f777#code) |
 | Deploy tx | [`0x969bd6…056c6c`](https://etherscan.io/tx/0x969bd60bc389c38623775aef6eb271bfdf3e9828db9f673bdcc7a08e17056c6c) |
 | `gabhru.eth` setResolver tx | [`0xaa5cae…02a33258`](https://etherscan.io/tx/0xaa5cae905d6d436cdef5c502bb665e539fd836c33ba22548bbc089dd02a33258) |
 | Gateway URL | https://open-agents-gateway-happys1nghs-projects.vercel.app |
