@@ -252,3 +252,63 @@ agentsRoute.post(
     })
   },
 )
+
+import {
+  checkSafeBytecode,
+  checkSafeDeployTx,
+  SAFE_L2_SINGLETON_BASE,
+} from '../lib/safe-bytecode.js'
+
+const treasurySchema = z.object({
+  safeAddress: z.string().startsWith('0x').length(42) as z.ZodType<`0x${string}`>,
+  deployTxHash: z.string().startsWith('0x').length(66) as z.ZodType<`0x${string}`>,
+})
+
+/**
+ * POST /agents/:id/treasury
+ * Body: { safeAddress, deployTxHash }
+ *
+ * Verifies the deploy tx is mined and the bytecode at safeAddress is a Safe
+ * proxy pointing at the canonical Base singleton.
+ */
+agentsRoute.post(
+  '/agents/:id/treasury',
+  jwtMiddleware(env.JWT_SECRET),
+  zValidator('json', treasurySchema),
+  async (c) => {
+    const claims = c.var.jwtClaims
+    const ownerEoa = ((claims.ownerEoa as string) ?? claims.sub).toLowerCase()
+    const id = c.req.param('id')
+    const body = c.req.valid('json')
+
+    const agent = await findAgentById(db, id)
+    if (!agent) return c.json({ error: 'Agent not found' }, 404)
+    if (agent.ownerEoa !== ownerEoa) return c.json({ error: 'Forbidden' }, 403)
+
+    const txCheck = await checkSafeDeployTx({
+      rpcUrl: env.BASE_RPC_URL,
+      txHash: body.deployTxHash,
+    })
+    if (!txCheck.ok) {
+      return c.json({ error: `Safe deploy tx verification failed: ${txCheck.reason}` }, 400)
+    }
+
+    const codeCheck = await checkSafeBytecode({
+      rpcUrl: env.BASE_RPC_URL,
+      safeAddress: body.safeAddress,
+      expectedSingleton: SAFE_L2_SINGLETON_BASE,
+    })
+    if (!codeCheck.ok) {
+      return c.json({ error: `Safe bytecode check failed: ${codeCheck.reason}` }, 400)
+    }
+
+    const updated = await updateAgent(db, id, {
+      treasurySafeAddress: body.safeAddress.toLowerCase(),
+    })
+
+    return c.json({
+      id: updated.id,
+      treasurySafeAddress: updated.treasurySafeAddress,
+    })
+  },
+)
