@@ -5,6 +5,6 @@ export default defineConfig({
   out: './migrations',
   dialect: 'postgresql',
   dbCredentials: {
-    url: process.env['DATABASE_URL'] ?? 'postgres://open_agents:open_agents_dev@localhost:5432/open_agents',
+    url: process.env['DATABASE_URL'] ?? 'postgres://open_agents:open_agents_dev@localhost:5434/open_agents',
   },
 })
