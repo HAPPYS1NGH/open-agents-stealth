@@ -5,6 +5,9 @@ import {
   timestamp,
   jsonb,
   boolean,
+  integer,
+  index,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core'
 
 /**
@@ -77,3 +80,38 @@ export const agents = pgTable('agents', {
 
 export type Agent = typeof agents.$inferSelect
 export type NewAgent = typeof agents.$inferInsert
+
+/**
+ * gateway_announcements — one row per stealth address the gateway hands out.
+ *
+ * agent_id        FK (uuid) into agents.id (NOT the on-chain ERC-8004 agentId).
+ * stealth_address Checksummed 0x… 20-byte EVM address returned to the resolver.
+ * ephemeral_pub   33-byte compressed secp256k1 pubkey R = r·G.
+ * view_tag        First byte of keccak256(sharedSecret) for cheap pre-filtering.
+ * generated_at    When the gateway wrote the row.
+ */
+export const gatewayAnnouncements = pgTable(
+  'gateway_announcements',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agentId: uuid('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+    stealthAddress: text('stealth_address').notNull(),
+    ephemeralPub: text('ephemeral_pub').notNull(),
+    viewTag: integer('view_tag').notNull(),
+    generatedAt: timestamp('generated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    byAgent: index('gateway_announcements_agent_idx').on(table.agentId, table.generatedAt),
+    uniqueEph: uniqueIndex('gateway_announcements_agent_eph_unq').on(
+      table.agentId,
+      table.ephemeralPub,
+    ),
+  }),
+)
+
+export type GatewayAnnouncement = typeof gatewayAnnouncements.$inferSelect
+export type NewGatewayAnnouncement = typeof gatewayAnnouncements.$inferInsert
