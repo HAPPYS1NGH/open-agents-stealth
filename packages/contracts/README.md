@@ -7,6 +7,22 @@ Solidity contracts for Open Agents private payments.
 - `OurOffchainResolver` — ENSIP-10 wildcard resolver implementing ERC-3668
   CCIP-Read for `*.gabhru.eth`. Set as `gabhru.eth`'s resolver.
 
+## Setup (first clone only)
+
+The `lib/` directory contains Foundry dependencies and is gitignored. After
+cloning, install them:
+
+```bash
+pnpm --filter @open-agents/contracts setup
+```
+
+Or directly with forge:
+
+```bash
+forge install --no-git OpenZeppelin/openzeppelin-contracts \
+  ensdomains/ens-contracts foundry-rs/forge-std
+```
+
 ## Build & test
 
 ```bash

@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "setup": "forge install --no-git OpenZeppelin/openzeppelin-contracts ensdomains/ens-contracts foundry-rs/forge-std",
     "build": "forge build",
     "test": "forge test -vv",
     "typecheck": "echo 'no-op for solidity'",
