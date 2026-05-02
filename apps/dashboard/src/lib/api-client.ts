@@ -56,11 +56,14 @@ export class ApiClient {
     if (body !== undefined) headers['Content-Type'] = 'application/json'
     if (this.token) headers['Authorization'] = `Bearer ${this.token}`
 
+    // No `credentials: 'include'`: this client talks to apps/api on a different
+    // origin, so cookies never cross. Including credentials would also force
+    // the browser to reject the response under `Access-Control-Allow-Origin: *`.
+    // Auth rides on the Authorization header populated above.
     const res = await fetch(`${this.baseUrl}${path}`, {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
-      credentials: 'include',
     })
 
     const refreshed = res.headers.get('x-refreshed-token')
