@@ -1,4 +1,12 @@
-import { createPublicClient, http, type Address } from 'viem'
+import {
+  createPublicClient,
+  http,
+  parseAbiItem,
+  decodeEventLog,
+  type Address,
+  type TransactionReceipt,
+  type Log,
+} from 'viem'
 import { base } from 'viem/chains'
 
 const IDENTITY_REGISTRY_ABI = [
@@ -97,4 +105,79 @@ export async function getAgentWalletInfo(params: {
     }),
   ])
   return { ownerAddress, agentWalletAddress }
+}
+
+const TRANSFER_EVENT = parseAbiItem(
+  'event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)',
+)
+
+export interface RegisterReceiptCheck {
+  rpcUrl: string
+  registryAddress: Address
+  txHash: `0x${string}`
+  expectedTokenId: bigint
+  expectedTo: Address
+}
+
+export interface RegisterReceiptResult {
+  ok: boolean
+  reason: string | null
+}
+
+/**
+ * Verifies that `txHash` minted ERC-8004 token `expectedTokenId` to
+ * `expectedTo` via the IdentityRegistry on Base mainnet.
+ *
+ * Returns { ok: false, reason } on any mismatch.
+ */
+export async function checkRegisterReceipt(
+  params: RegisterReceiptCheck,
+): Promise<RegisterReceiptResult> {
+  const client = createPublicClient({
+    chain: base,
+    transport: http(params.rpcUrl, { timeout: 5_000 }),
+  })
+
+  let receipt: TransactionReceipt
+  try {
+    receipt = await client.getTransactionReceipt({ hash: params.txHash })
+  } catch (err) {
+    return { ok: false, reason: `getTransactionReceipt failed: ${String(err)}` }
+  }
+
+  if (receipt.status !== 'success') {
+    return { ok: false, reason: `tx status is ${receipt.status}` }
+  }
+
+  const registryLower = params.registryAddress.toLowerCase()
+  const expectedToLower = params.expectedTo.toLowerCase()
+
+  const matchingLog = receipt.logs.find((log: Log) => {
+    if (log.address.toLowerCase() !== registryLower) return false
+    try {
+      const decoded = decodeEventLog({
+        abi: [TRANSFER_EVENT],
+        data: log.data,
+        topics: log.topics,
+      })
+      if (decoded.eventName !== 'Transfer') return false
+      const args = decoded.args as { from: Address; to: Address; tokenId: bigint }
+      return (
+        args.from === '0x0000000000000000000000000000000000000000' &&
+        args.to.toLowerCase() === expectedToLower &&
+        args.tokenId === params.expectedTokenId
+      )
+    } catch {
+      return false
+    }
+  })
+
+  if (!matchingLog) {
+    return {
+      ok: false,
+      reason: `no Transfer(0x0, ${params.expectedTo}, ${params.expectedTokenId}) log from ${params.registryAddress}`,
+    }
+  }
+
+  return { ok: true, reason: null }
 }

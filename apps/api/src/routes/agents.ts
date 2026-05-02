@@ -7,7 +7,11 @@ import {
   insertAgent,
   updateAgent,
 } from '@open-agents/db'
-import { isAuthorizedForAgent } from '../lib/identity-registry.js'
+import {
+  isAuthorizedForAgent,
+  checkRegisterReceipt,
+  getAgentWalletInfo,
+} from '../lib/identity-registry.js'
 import { env } from '../env.js'
 import { db } from '../server.js'
 
@@ -170,6 +174,81 @@ agentsRoute.patch(
       isActive: updated.isActive,
       createdAt: updated.createdAt.toISOString(),
       updatedAt: updated.updatedAt.toISOString(),
+    })
+  },
+)
+
+const registerOnchainSchema = z.object({
+  agentId: z
+    .string()
+    .regex(/^[0-9]+:[0-9]+$/, 'agentId must be "chainId:uint256", e.g. "8453:42"'),
+  txHash: z.string().startsWith('0x').length(66) as z.ZodType<`0x${string}`>,
+})
+
+/**
+ * POST /agents/:id/register-onchain
+ * Body: { agentId: "8453:42", txHash: "0x..." }
+ *
+ * Verifies the dev's register() tx is mined and minted the supplied agent ID
+ * to the authenticated owner EOA. Persists agentId and agentWalletEoa.
+ */
+agentsRoute.post(
+  '/agents/:id/register-onchain',
+  jwtMiddleware(env.JWT_SECRET),
+  zValidator('json', registerOnchainSchema),
+  async (c) => {
+    const claims = c.var.jwtClaims
+    const ownerEoa = ((claims.ownerEoa as string) ?? claims.sub).toLowerCase()
+    const id = c.req.param('id')
+    const body = c.req.valid('json')
+
+    const agent = await findAgentById(db, id)
+    if (!agent) return c.json({ error: 'Agent not found' }, 404)
+    if (agent.ownerEoa !== ownerEoa) {
+      return c.json({ error: 'Forbidden' }, 403)
+    }
+
+    const [chainIdStr, tokenIdStr] = body.agentId.split(':')
+    if (!chainIdStr || !tokenIdStr) {
+      return c.json({ error: 'Malformed agentId' }, 400)
+    }
+    if (chainIdStr !== '8453') {
+      return c.json({ error: 'Only Base mainnet (chainId 8453) is supported' }, 400)
+    }
+    const tokenId = BigInt(tokenIdStr)
+
+    const receiptCheck = await checkRegisterReceipt({
+      rpcUrl: env.BASE_RPC_URL,
+      registryAddress: env.IDENTITY_REGISTRY_ADDRESS as `0x${string}`,
+      txHash: body.txHash,
+      expectedTokenId: tokenId,
+      expectedTo: ownerEoa as `0x${string}`,
+    })
+    if (!receiptCheck.ok) {
+      return c.json({ error: `Register tx verification failed: ${receiptCheck.reason}` }, 400)
+    }
+
+    const info = await getAgentWalletInfo({
+      rpcUrl: env.BASE_RPC_URL,
+      registryAddress: env.IDENTITY_REGISTRY_ADDRESS as `0x${string}`,
+      agentId: tokenId,
+    })
+    if (info.ownerAddress.toLowerCase() !== ownerEoa) {
+      return c.json(
+        { error: 'On-chain ownerOf does not match the authenticated wallet' },
+        403,
+      )
+    }
+
+    const updated = await updateAgent(db, id, {
+      agentId: body.agentId,
+      agentWalletEoa: info.agentWalletAddress.toLowerCase(),
+    })
+
+    return c.json({
+      id: updated.id,
+      agentId: updated.agentId,
+      agentWalletEoa: updated.agentWalletEoa,
     })
   },
 )
