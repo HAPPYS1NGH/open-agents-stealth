@@ -1,0 +1,54 @@
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+*.env
+!.env.example
+secrets/
+*.key
+*.pem
+
+# Dependencies
+node_modules/
+.pnpm-store/
+.yarn/
+
+# Build output
+dist/
+build/
+out/
+.next/
+.turbo/
+
+# TypeScript
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.recommended.json
+*.swp
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# Hardhat / Foundry artifacts
+artifacts/
+cache/
+typechain-types/
+broadcast/
+
+# Local data
+*.sqlite
+*.db
+.tmp/
