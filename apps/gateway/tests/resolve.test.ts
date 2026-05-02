@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { encodeFunctionData, namehash, parseAbi, decodeAbiParameters, toHex } from 'viem'
+import { encodeFunctionData, namehash, parseAbi, decodeAbiParameters } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 
 const SIGNER_PK = '0x0000000000000000000000000000000000000000000000000000000000000001'
@@ -13,22 +13,6 @@ beforeAll(async () => {
 })
 
 afterAll(() => { delete process.env.GATEWAY_SIGNER_PRIVATE_KEY })
-
-function buildResolveCalldata(name: string, innerData: `0x${string}`): `0x${string}` {
-  // resolve(bytes,bytes) selector = 0x9061b923
-  // Mirrors what the resolver contract puts into OffchainLookup.callData.
-  // Encoded as call to `resolve(bytes name, bytes data)`.
-  return encodeFunctionData({
-    abi: parseAbi(['function resolve(bytes, bytes)']),
-    functionName: 'resolve',
-    args: [
-      // Easier path for the test: pre-encode DNS name from helper
-      // (we reuse the gateway's dnsEncode helper).
-      toHex(new TextEncoder().encode(name)),  // placeholder; replaced below
-      innerData,
-    ],
-  })
-}
 
 describe('GET /resolve/:sender/:data', () => {
   it('returns a signed addr() response for test.gabhru.eth', async () => {
@@ -85,5 +69,86 @@ describe('GET /resolve/:sender/:data', () => {
     const url = `http://localhost/resolve/0x0/${resolveCalldata}.json`
     const res = await app.fetch(new Request(url))
     expect(res.status).toBe(404)
+  })
+
+  it('returns 400 for unsupported record selector', async () => {
+    const { dnsEncode } = await import('../src/lib/ens-decode.js')
+    const dns = `0x${Buffer.from(dnsEncode('test.gabhru.eth')).toString('hex')}` as `0x${string}`
+
+    // Use an unsupported selector 0xdeadbeef with zero padding (32 bytes of params)
+    const unsupportedInnerData = ('0xdeadbeef' + '00'.repeat(32)) as `0x${string}`
+
+    const resolveCalldata = encodeFunctionData({
+      abi: parseAbi(['function resolve(bytes, bytes)']),
+      functionName: 'resolve',
+      args: [dns, unsupportedInnerData],
+    })
+
+    const sender = '0x000000000000000000000000000000000000CAFE'
+    const url = `http://localhost/resolve/${sender}/${resolveCalldata}.json`
+    const res = await app.fetch(new Request(url))
+    expect(res.status).toBe(400)
+    const body = await res.json() as { message: string }
+    expect(body.message).toBe('unsupported inner record selector')
+  })
+
+  it('returns 400 for non-gabhru.eth parent', async () => {
+    const node = namehash('test.other.eth')
+    const innerData = encodeFunctionData({
+      abi: parseAbi(['function addr(bytes32) view returns (address)']),
+      functionName: 'addr',
+      args: [node],
+    })
+
+    const { dnsEncode } = await import('../src/lib/ens-decode.js')
+    const dns = `0x${Buffer.from(dnsEncode('test.other.eth')).toString('hex')}` as `0x${string}`
+
+    const resolveCalldata = encodeFunctionData({
+      abi: parseAbi(['function resolve(bytes, bytes)']),
+      functionName: 'resolve',
+      args: [dns, innerData],
+    })
+
+    const sender = '0x000000000000000000000000000000000000CAFE'
+    const url = `http://localhost/resolve/${sender}/${resolveCalldata}.json`
+    const res = await app.fetch(new Request(url))
+    expect(res.status).toBe(400)
+    const body = await res.json() as { message: string }
+    expect(body.message).toBe('unsupported name tree')
+  })
+
+  it('returns a signed text() response', async () => {
+    const node = namehash('test.gabhru.eth')
+    const innerData = encodeFunctionData({
+      abi: parseAbi(['function text(bytes32, string) view returns (string)']),
+      functionName: 'text',
+      args: [node, 'agent-context'],
+    })
+
+    const { dnsEncode } = await import('../src/lib/ens-decode.js')
+    const dns = `0x${Buffer.from(dnsEncode('test.gabhru.eth')).toString('hex')}` as `0x${string}`
+
+    const resolveCalldata = encodeFunctionData({
+      abi: parseAbi(['function resolve(bytes, bytes)']),
+      functionName: 'resolve',
+      args: [dns, innerData],
+    })
+
+    const sender = '0x000000000000000000000000000000000000CAFE'
+    const url = `http://localhost/resolve/${sender}/${resolveCalldata}.json`
+    const res = await app.fetch(new Request(url))
+
+    expect(res.status).toBe(200)
+    const body = await res.json() as { data: `0x${string}` }
+    expect(body.data).toMatch(/^0x[0-9a-f]+$/i)
+
+    const [resultBytes, expires, sig] = decodeAbiParameters(
+      [{ type: 'bytes' }, { type: 'uint64' }, { type: 'bytes' }],
+      body.data,
+    )
+    expect(typeof expires).toBe('bigint')
+    expect((sig as `0x${string}`).length).toBe(2 + 65 * 2) // 65 bytes hex
+    const [textValue] = decodeAbiParameters([{ type: 'string' }], resultBytes as `0x${string}`)
+    expect(textValue).toBe('{"name":"Plan 1 stub","description":"Hardcoded; replaced in Plan 4."}')
   })
 })

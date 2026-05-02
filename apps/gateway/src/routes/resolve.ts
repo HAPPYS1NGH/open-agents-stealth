@@ -25,18 +25,39 @@ resolveRoute.get('/resolve/:sender/:data', async (c) => {
     return c.json({ message: 'expected resolve() selector' }, 400)
   }
   const inner = `0x${dataParam.slice(10)}` as Hex
-  const [dnsName, recordCalldata] = decodeAbiParameters(
-    [{ type: 'bytes' }, { type: 'bytes' }],
-    inner,
-  ) as [Hex, Hex]
 
-  const labels = decodeDnsName(dnsName)
-  if (labels.length < 2) {
-    return c.json({ message: 'name too short' }, 400)
+  let dnsName: Hex
+  let recordCalldata: Hex
+  try {
+    ;[dnsName, recordCalldata] = decodeAbiParameters(
+      [{ type: 'bytes' }, { type: 'bytes' }],
+      inner,
+    ) as [Hex, Hex]
+  } catch {
+    return c.json({ message: 'malformed resolve() calldata' }, 400)
   }
+
+  let labels: string[]
+  try {
+    labels = decodeDnsName(dnsName)
+  } catch {
+    return c.json({ message: 'malformed DNS-encoded name' }, 400)
+  }
+
+  if (labels.length < 3 || labels[1] !== 'gabhru' || labels[2] !== 'eth') {
+    return c.json({ message: 'unsupported name tree' }, 400)
+  }
+
   // Expecting <label>.gabhru.eth
   const subnameLabel = labels[0]!
-  const parsed = parseResolveData(recordCalldata)
+
+  let parsed: ReturnType<typeof parseResolveData>
+  try {
+    parsed = parseResolveData(recordCalldata)
+  } catch {
+    return c.json({ message: 'unsupported inner record selector' }, 400)
+  }
+
   const agent = findStubAgent(subnameLabel)
   if (!agent) {
     return c.json({ message: `no agent for label '${subnameLabel}'` }, 404)
@@ -56,7 +77,12 @@ resolveRoute.get('/resolve/:sender/:data', async (c) => {
 
   // Checksum the sender address — do this after early 404 exits so invalid
   // addresses in test-only 404 paths don't throw before the lookup runs.
-  const target = getAddress(rawSender) as Address
+  let target: Address
+  try {
+    target = getAddress(rawSender)
+  } catch {
+    return c.json({ message: 'invalid sender address' }, 400)
+  }
 
   const result = encodeResolveResult(parsed, value)
   const expires = BigInt(Math.floor(Date.now() / 1000)) + SIG_VALIDITY_SECONDS
