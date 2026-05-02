@@ -30,13 +30,17 @@ await client.getEnsAddress({ name: "test.gabhru.eth" })
 | Gateway (Vercel, edge runtime) | [open-agents-gateway-happys1nghs-projects.vercel.app](https://open-agents-gateway-happys1nghs-projects.vercel.app/health) |
 | Gateway signer (CCIP-Read) | `0x9B9B2C0F4a157ae83eaF3f0e901Ff6F8AE510017` |
 
-Currently only `test.gabhru.eth` is registered (stub). Plan 2 swaps the stub
-for a Postgres-backed agents table so any owner can register their agent.
+Currently only `test.gabhru.eth` is registered (seeded in Postgres). The
+gateway now reads from a Postgres-backed agents table (Plan 2) so any owner
+can register their agent via the REST API.
 
 ## Repo layout
 
 - `apps/gateway` — CCIP-Read offchain resolver gateway (Hono on Vercel edge runtime)
+- `apps/api` — REST API for dashboard + SDK auth (Hono, SIWE + JWT, deploys to Vercel)
 - `packages/contracts` — Solidity contracts (Foundry); `OurOffchainResolver` is the deployed wildcard resolver
+- `packages/db` — Drizzle ORM schema, migrations, and query helpers (shared by gateway + api)
+- `packages/auth` — SIWE verification, JWT mint/verify, Hono middleware (used by api)
 - `scripts/local-e2e.sh` — one-shot anvil-fork verification of the full CCIP-Read loop
 - `docs/superpowers/specs` — design specs (threat model, key model, ENS strategy)
 - `docs/superpowers/plans` — implementation plans
@@ -46,7 +50,7 @@ for a Postgres-backed agents table so any owner can register their agent.
 | # | Title | Status |
 |---|---|---|
 | 1 | Foundation + ENS resolver | ✅ deployed to mainnet |
-| 2 | Backend foundation (Postgres, SIWE, agent CRUD) | drafted |
+| 2 | Backend foundation (Postgres, SIWE, agent CRUD) | ✅ implemented (local) |
 | 3 | Onboarding wizard | tbd |
 | 4 | Stealth crypto + gateway integration | tbd |
 | 5 | Scanner + dashboard | tbd |
@@ -56,9 +60,21 @@ for a Postgres-backed agents table so any owner can register their agent.
 ## Quick start
 
 ```bash
+# 1. Start local Postgres (used by packages/db, apps/api, apps/gateway tests)
+docker compose -f docker-compose.dev.yml up -d
+
+# 2. Install workspace deps
 pnpm install
-pnpm -r build
-pnpm -r test
+
+# 3. Run DB migrations
+DATABASE_URL=postgres://open_agents:open_agents_dev@localhost:5434/open_agents \
+  pnpm --filter @open-agents/db db:migrate
+
+# 4. Run the full test suite
+DATABASE_URL=postgres://open_agents:open_agents_dev@localhost:5434/open_agents \
+JWT_SECRET=any-32-char-string-for-local-dev-xxxxxx \
+GATEWAY_SIGNER_PRIVATE_KEY=0x0000000000000000000000000000000000000000000000000000000000000001 \
+  pnpm -r test
 ```
 
 To verify the full mainnet CCIP-Read loop locally against an anvil fork
