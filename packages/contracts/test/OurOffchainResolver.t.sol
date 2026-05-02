@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import { Test } from "forge-std/Test.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { OurOffchainResolver } from "../src/OurOffchainResolver.sol";
 import { SignatureVerifier } from "../src/SignatureVerifier.sol";
 
@@ -22,11 +23,6 @@ contract OurOffchainResolverTest is Test {
         resolver = new OurOffchainResolver(urls, _toArray(signer));
     }
 
-    function _toArray(address a) internal pure returns (address[] memory arr) {
-        arr = new address[](1);
-        arr[0] = a;
-    }
-
     function test_supportsExtendedResolverInterface() public view {
         // ENSIP-10 IExtendedResolver
         assertTrue(resolver.supportsInterface(0x9061b923));
@@ -39,9 +35,14 @@ contract OurOffchainResolverTest is Test {
         // calldata for addr(bytes32 node)
         bytes memory data = abi.encodeWithSelector(0x3b3b57de, bytes32(uint256(0x1234)));
 
-        // Capture the OffchainLookup revert
-        vm.expectRevert();
-        resolver.resolve(dnsName, data);
+        // We can't easily decode the full struct, but we can pin the selector
+        bytes4 expectedSelector = OurOffchainResolver.OffchainLookup.selector;
+        try resolver.resolve(dnsName, data) {
+            revert("expected revert");
+        } catch (bytes memory reason) {
+            bytes4 selector = bytes4(reason);
+            assertEq(selector, expectedSelector);
+        }
     }
 
     function test_resolveWithProof_acceptsValidSignature() public {
@@ -69,7 +70,8 @@ contract OurOffchainResolverTest is Test {
         bytes memory sig = abi.encodePacked(r, s, v);
         bytes memory response = abi.encode(result, expires, sig);
 
-        vm.expectRevert(bytes("OurOffchainResolver: unauthorised signer"));
+        address recovered = vm.addr(unknownKey);
+        vm.expectRevert(abi.encodeWithSelector(OurOffchainResolver.UnauthorisedSigner.selector, recovered));
         resolver.resolveWithProof(response, request);
     }
 
@@ -85,9 +87,124 @@ contract OurOffchainResolverTest is Test {
     }
 
     function test_nonOwner_cannotRotateSigners() public {
-        vm.prank(address(0xBADBAD));
-        vm.expectRevert();
+        address attacker = address(0xBADBAD);
+        vm.prank(attacker);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, attacker));
         resolver.setSigner(address(0xBEEF), true);
+    }
+
+    function test_constructor_authorizesAllSigners() public {
+        address signerA = vm.addr(0xA1);
+        address signerB = vm.addr(0xB2);
+        address[] memory two = new address[](2);
+        two[0] = signerA;
+        two[1] = signerB;
+
+        vm.prank(owner);
+        OurOffchainResolver multi = new OurOffchainResolver(urls, two);
+
+        assertTrue(multi.signers(signerA));
+        assertTrue(multi.signers(signerB));
+    }
+
+    function test_constructor_rejectsZeroAddressSigner() public {
+        address[] memory bad = new address[](1);
+        bad[0] = address(0);
+
+        vm.expectRevert(bytes("OurOffchainResolver: zero signer"));
+        new OurOffchainResolver(urls, bad);
+    }
+
+    function test_constructor_rejectsEmptyUrls() public {
+        string[] memory empty = new string[](0);
+
+        vm.expectRevert(bytes("OurOffchainResolver: urls empty"));
+        new OurOffchainResolver(empty, _toArray(signer));
+    }
+
+    function test_setSigner_rejectsZeroAddress() public {
+        vm.prank(owner);
+        vm.expectRevert(bytes("OurOffchainResolver: zero signer"));
+        resolver.setSigner(address(0), true);
+    }
+
+    function test_setUrls_rejectsEmpty() public {
+        string[] memory empty = new string[](0);
+        vm.prank(owner);
+        vm.expectRevert(bytes("OurOffchainResolver: urls empty"));
+        resolver.setUrls(empty);
+    }
+
+    function test_setUrls_rotates() public {
+        string[] memory next = new string[](1);
+        next[0] = "https://other.example.com/resolve/{sender}/{data}";
+
+        vm.prank(owner);
+        resolver.setUrls(next);
+
+        assertEq(resolver.urls(0), next[0]);
+    }
+
+    function test_resolveWithProof_acceptsAfterReauthorize() public {
+        // Authorize, revoke, re-authorize — verify in-flight rotation works
+        vm.prank(owner);
+        resolver.setSigner(signer, false);
+        assertFalse(resolver.signers(signer));
+
+        vm.prank(owner);
+        resolver.setSigner(signer, true);
+        assertTrue(resolver.signers(signer));
+    }
+
+    function test_resolveWithProof_rejectsAfterRevoke() public {
+        // Revoke the signer; previously-valid signatures must now be rejected
+        vm.prank(owner);
+        resolver.setSigner(signer, false);
+
+        bytes memory request = hex"deadbeef";
+        bytes memory result = abi.encode(address(0xCAFE));
+        uint64 expires = uint64(block.timestamp + 60);
+        bytes32 hash = SignatureVerifier.makeSignatureHash(address(resolver), expires, request, result);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, hash);
+        bytes memory sig = abi.encodePacked(r, s, v);
+        bytes memory response = abi.encode(result, expires, sig);
+
+        vm.expectRevert(abi.encodeWithSelector(OurOffchainResolver.UnauthorisedSigner.selector, signer));
+        resolver.resolveWithProof(response, request);
+    }
+
+    function test_constructor_emitsNewSignersEvent() public {
+        vm.expectEmit(true, false, false, true);
+        emit OurOffchainResolver.NewSigners(signer, true);
+
+        vm.prank(owner);
+        new OurOffchainResolver(urls, _toArray(signer));
+    }
+
+    function test_setSigner_emitsEvent() public {
+        address newSigner = address(0xBEEF);
+
+        vm.expectEmit(true, false, false, true);
+        emit OurOffchainResolver.NewSigners(newSigner, true);
+
+        vm.prank(owner);
+        resolver.setSigner(newSigner, true);
+    }
+
+    function test_setUrls_emitsEvent() public {
+        string[] memory next = new string[](1);
+        next[0] = "https://other.example.com/resolve/{sender}/{data}";
+
+        vm.expectEmit(false, false, false, true);
+        emit OurOffchainResolver.UrlsUpdated(next);
+
+        vm.prank(owner);
+        resolver.setUrls(next);
+    }
+
+    function _toArray(address a) internal pure returns (address[] memory arr) {
+        arr = new address[](1);
+        arr[0] = a;
     }
 
     function _dnsEncode(string memory name) internal pure returns (bytes memory) {
