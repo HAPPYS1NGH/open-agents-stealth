@@ -349,13 +349,13 @@ Internally, `agent.signReceipt` either signs locally with the agent owner's key 
 ### 6.2 Receive payment
 
 1. Sender (any wallet on Base) types `mybot.gabhru.eth` and an amount in USDC.
-2. Wallet (or our `/pay/[ens]` page) resolves: viem's `getEnsAddress({ name: 'mybot.gabhru.eth', coinType: 2147492101 })` → CCIP-Read kicks in → mainnet `OurOffchainResolver` → `OffchainLookup` → our gateway → fresh stealth address `0xS`.
+2. Wallet (or our `/pay/[ens]` page) resolves: viem's `getEnsAddress({ name: 'mybot.gabhru.eth', coinType: 2147492101 })` → CCIP-Read kicks in → mainnet `OurOffchainResolver` → `OffchainLookup` → our gateway → derives `stealthEOA` then `stealthSafe` via CREATE2, returns **`stealthSafe` address** `0xS`.
 3. Sender's wallet:
-   - Sends USDC to `0xS` on Base.
+   - Sends USDC to `0xS` on Base. (Safe is not yet deployed; funds sit at the address, fully recoverable.)
    - Calls `Announcer.announce(1, 0xS, ephemeralPubKey, metadata)` where `metadata[0] = viewTag`.
-4. Our scanner picks up the `Announcement` event, decrypts via the agent's view key, matches to `mybot`, persists payment, pushes WebSocket event.
+4. Our scanner picks up the `Announcement` event, decrypts via the agent's view key, matches to `mybot`, persists payment with `stealthSafe = 0xS` and `stealthEOA = derived signer`, pushes WebSocket event.
 5. Agent's running SDK receives the WebSocket event, fires `onPayment(callback)`.
-6. (Later) Agent can call `agent.withdraw({ to: treasurySafe, amount: 'all' })` to sweep balances.
+6. (Later) Agent calls `agent.withdraw({ asset: 'USDC', amount: 'all' })`. SDK iterates each unspent stealth Safe, batches `(deploy + Safe.execTransfer to treasurySafe)` user-ops, signs as the `stealthEOA` (derived locally from `spendPrivKey + ECDH(viewPriv, ephemeralPub)`), submits via paymaster-sponsored bundler. Net out-of-pocket gas: $0.
 
 ### 6.3 Reputation
 
