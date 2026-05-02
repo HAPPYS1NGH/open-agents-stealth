@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",
+    "@open-agents/crypto": "workspace:*",
     "@open-agents/db": "workspace:*",
     "hono": "^4.6.9",
     "viem": "^2.21.41",
