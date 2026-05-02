@@ -9,6 +9,7 @@ const envSchema = z.object({
     emptyAsUndefined,
     z.string().startsWith('0x').length(42).optional(),
   ),
+  DATABASE_URL: z.string().url(),
 })
 
 export const env = envSchema.parse(process.env)

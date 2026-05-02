@@ -4,7 +4,7 @@ import { privateKeyToAccount } from 'viem/accounts'
 import { decodeDnsName } from '../lib/ens-decode.js'
 import { encodeResolveResult, parseResolveData } from '../lib/ens-resolve-data.js'
 import { signGatewayResponse } from '../lib/gateway-signer.js'
-import { findStubAgent } from '../lib/stub-agents.js'
+import { findGatewayAgent } from '../lib/agents-repo.js'
 import { env } from '../env.js'
 
 const SIG_VALIDITY_SECONDS = 60n  // signed responses expire in 60s
@@ -58,7 +58,7 @@ resolveRoute.get('/resolve/:sender/:data', async (c) => {
     return c.json({ message: 'unsupported inner record selector' }, 400)
   }
 
-  const agent = findStubAgent(subnameLabel)
+  const agent = await findGatewayAgent(subnameLabel)
   if (!agent) {
     return c.json({ message: `no agent for label '${subnameLabel}'` }, 404)
   }

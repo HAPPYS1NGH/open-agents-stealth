@@ -1,15 +1,29 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { encodeFunctionData, namehash, parseAbi, decodeAbiParameters } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
+import { createDb, insertAgent } from '@open-agents/db'
 
 const SIGNER_PK = '0x0000000000000000000000000000000000000000000000000000000000000001'
 const SIGNER = privateKeyToAccount(SIGNER_PK)
+const DB_URL = 'postgres://open_agents:open_agents_dev@localhost:5434/open_agents'
 
 let app: { fetch: (req: Request) => Promise<Response> }
 
 beforeAll(async () => {
   process.env.GATEWAY_SIGNER_PRIVATE_KEY = SIGNER_PK
+  process.env.DATABASE_URL = DB_URL
   app = (await import('../src/server.js')).default
+
+  // Seed the 'test' agent that the resolve tests look up.
+  const db = createDb(DB_URL)
+  await insertAgent(db, {
+    ownerEoa: '0x0000000000000000000000000000000000000001',
+    subnameLabel: 'test',
+    baseAddr: '0x000000000000000000000000000000000000bEEF',
+    textRecords: {
+      'agent-context': '{"name":"Plan 1 stub","description":"Hardcoded; replaced in Plan 4."}',
+    },
+  }).catch(() => { /* row may already exist from a prior run */ })
 })
 
 afterAll(() => { delete process.env.GATEWAY_SIGNER_PRIVATE_KEY })
