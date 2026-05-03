@@ -17,4 +17,24 @@ const envSchema = z.object({
   CRON_SECRET: z.preprocess(emptyAsUndefined, z.string().min(8).optional()),
 })
 
-export const env = envSchema.parse(process.env)
+export type ScannerEnv = z.infer<typeof envSchema>
+
+let cached: ScannerEnv | null = null
+
+/**
+ * Lazy-parsed env. Test files set `process.env.X` at module top level, but
+ * because ES modules hoist imports above body, eager parsing inside this
+ * file would observe an empty env and throw before the test body runs.
+ * The Proxy defers parsing to first read.
+ */
+export const env: ScannerEnv = new Proxy({} as ScannerEnv, {
+  get(_target, prop: string | symbol) {
+    if (!cached) cached = envSchema.parse(process.env)
+    return Reflect.get(cached, prop)
+  },
+})
+
+/** Test-only: clears the cached env so a subsequent read re-parses. */
+export function resetEnvForTest(): void {
+  cached = null
+}
