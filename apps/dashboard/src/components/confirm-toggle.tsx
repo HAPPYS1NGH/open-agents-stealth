@@ -37,14 +37,14 @@ export function ConfirmToggle({ agentId, payment, onChange }: ConfirmToggleProps
       <Button
         type="button"
         size="sm"
-        variant={optimistic ? 'default' : 'outline'}
+        variant={optimistic ? 'accent' : 'outline'}
         onClick={handleClick}
         disabled={isPending}
       >
-        {optimistic ? 'Confirmed' : 'Confirm'}
+        {optimistic ? '✓ Confirmed' : 'Confirm'}
       </Button>
       {error ? (
-        <span className="text-xs text-red-600">{error.message}</span>
+        <span className="text-xs text-destructive">{error.message}</span>
       ) : null}
     </div>
   )

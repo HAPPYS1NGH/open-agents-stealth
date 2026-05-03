@@ -1,37 +1,301 @@
 @import 'tailwindcss';
 
+/* ──────────────────────────────────────────────────────────────────────────
+   Gabhru — design tokens
+   Aesthetic: dark editorial cypherpunk. Near-black canvas, hairline borders,
+   italic serif display, mono ENS names, single acid-lime accent.
+   ────────────────────────────────────────────────────────────────────────── */
+
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222 47% 11%;
+    /* Light theme is intentionally minimal — product defaults to dark. */
+    --background: 60 9% 98%;
+    --foreground: 240 10% 4%;
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
-    --primary: 222 47% 11%;
-    --primary-foreground: 210 40% 98%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214 32% 91%;
+    --card-foreground: 240 10% 4%;
+    --primary: 240 10% 6%;
+    --primary-foreground: 60 9% 98%;
+    --muted: 60 5% 94%;
+    --muted-foreground: 240 4% 38%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 60 9% 98%;
+    --border: 240 6% 88%;
+    --ring: 80 100% 65%;
+    --accent: 80 95% 64%;        /* acid lime — single accent */
+    --accent-foreground: 240 10% 4%;
+    --success: 158 64% 42%;
+    --warning: 38 92% 50%;
     --radius: 0.5rem;
   }
 
-  .dark {
-    --background: 222 47% 7%;
-    --foreground: 210 40% 98%;
-    --card: 222 47% 9%;
-    --card-foreground: 210 40% 98%;
-    --primary: 210 40% 98%;
-    --primary-foreground: 222 47% 11%;
-    --muted: 217 33% 17%;
-    --muted-foreground: 215 20% 65%;
-    --destructive: 0 62% 50%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217 33% 20%;
+  .dark, html {
+    --background: 240 8% 5%;       /* #0a0a0c near-black, slight warm tint */
+    --foreground: 60 9% 96%;       /* paper white */
+    --card: 240 8% 7%;             /* lifted surface */
+    --card-foreground: 60 9% 96%;
+    --primary: 60 9% 96%;
+    --primary-foreground: 240 10% 4%;
+    --muted: 240 6% 11%;
+    --muted-foreground: 240 5% 60%;
+    --destructive: 0 72% 60%;
+    --destructive-foreground: 60 9% 98%;
+    --border: 240 6% 14%;
+    --ring: 80 100% 65%;
+    --accent: 80 95% 64%;          /* lime: #d4ff4f-ish */
+    --accent-foreground: 240 10% 4%;
+    --success: 158 64% 52%;
+    --warning: 38 92% 60%;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  html {
+    color-scheme: dark;
+    font-feature-settings: 'cv11', 'ss01', 'ss03', 'cv02';
   }
 
   body {
     background: hsl(var(--background));
     color: hsl(var(--foreground));
+    font-family: var(--font-sans), 'Geist', ui-sans-serif, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
+
+  ::selection {
+    background: hsl(var(--accent) / 0.85);
+    color: hsl(var(--accent-foreground));
+  }
+
+  /* Editorial display utility — used on landing hero. */
+  .font-display {
+    font-family: var(--font-display), 'Instrument Serif', 'Times New Roman', serif;
+    font-weight: 400;
+    letter-spacing: -0.02em;
+  }
+
+  .font-mono {
+    font-family: var(--font-mono), 'Geist Mono', 'JetBrains Mono', ui-monospace,
+      SFMono-Regular, Menlo, monospace;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Atmosphere — global background mesh + grain.
+   The body has a subtle grid and two radial blooms hinting at stealth math.
+   ────────────────────────────────────────────────────────────────────────── */
+
+.bg-mesh {
+  background-image:
+    radial-gradient(800px 480px at 12% -10%, hsl(var(--accent) / 0.10), transparent 60%),
+    radial-gradient(600px 600px at 105% 8%, hsl(220 90% 60% / 0.08), transparent 65%),
+    radial-gradient(400px 400px at 50% 110%, hsl(var(--accent) / 0.05), transparent 70%);
+}
+
+.bg-grid {
+  background-image:
+    linear-gradient(hsl(var(--border) / 0.55) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--border) / 0.55) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, black 50%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, black 50%, transparent 100%);
+}
+
+.bg-grain::before {
+  content: '';
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.06 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  opacity: 0.5;
+  mix-blend-mode: overlay;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Motion — slow drift on hero accents, cursor-aware glow on cards.
+   Respects reduced-motion.
+   ────────────────────────────────────────────────────────────────────────── */
+
+@keyframes drift {
+  0%, 100% { transform: translate3d(0,0,0) scale(1); }
+  50% { transform: translate3d(2%, -1.5%, 0) scale(1.04); }
+}
+
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 hsl(var(--accent) / 0.55); }
+  70% { box-shadow: 0 0 0 14px hsl(var(--accent) / 0); }
+  100% { box-shadow: 0 0 0 0 hsl(var(--accent) / 0); }
+}
+
+@keyframes blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scan {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-drift { animation: drift 16s ease-in-out infinite; }
+.animate-blink { animation: blink 1.05s steps(1) infinite; }
+.animate-pulse-ring { animation: pulse-ring 1.8s ease-out infinite; }
+.animate-fade-up { animation: fade-up 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.animate-scan { animation: scan 6s linear infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-drift,
+  .animate-blink,
+  .animate-pulse-ring,
+  .animate-fade-up,
+  .animate-scan,
+  .animate-shimmer {
+    animation: none !important;
+  }
+}
+
+/* Stagger helpers for fade-up */
+.stagger-1 { animation-delay: 0.05s; }
+.stagger-2 { animation-delay: 0.15s; }
+.stagger-3 { animation-delay: 0.25s; }
+.stagger-4 { animation-delay: 0.35s; }
+.stagger-5 { animation-delay: 0.50s; }
+.stagger-6 { animation-delay: 0.70s; }
+
+/* Lime "live" dot used in chips. */
+.dot-live {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: hsl(var(--accent));
+  box-shadow: 0 0 0 0 hsl(var(--accent) / 0.6);
+  animation: pulse-ring 1.8s ease-out infinite;
+}
+
+/* Gradient hairline divider — used to frame sections. */
+.hr-fade {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    hsl(var(--border)) 20%,
+    hsl(var(--border)) 80%,
+    transparent
+  );
+}
+
+/* Marker chip used inline beside section titles. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: 999px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--card) / 0.6);
+  backdrop-filter: blur(8px);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+}
+
+.chip[data-tone='accent'] {
+  color: hsl(var(--accent));
+  border-color: hsl(var(--accent) / 0.35);
+  background: hsl(var(--accent) / 0.06);
+}
+
+/* "Card-spotlight" — cursor-aware glow without JS via CSS variables. */
+.card-glow {
+  position: relative;
+  isolation: isolate;
+}
+.card-glow::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    260px circle at var(--mx, 50%) var(--my, 50%),
+    hsl(var(--accent) / 0.08),
+    transparent 60%
+  );
+  opacity: 0;
+  transition: opacity 240ms ease-out;
+  pointer-events: none;
+  z-index: 1;
+}
+.card-glow:hover::before {
+  opacity: 1;
+}
+
+/* Terminal-style code block. */
+.codeblock {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: hsl(var(--foreground));
+  background: hsl(240 10% 3% / 0.6);
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) + 2px);
+  padding: 1.125rem 1.25rem;
+  overflow: auto;
+}
+
+.codeblock .tok-comment { color: hsl(var(--muted-foreground)); font-style: italic; }
+.codeblock .tok-key     { color: hsl(var(--accent)); }
+.codeblock .tok-str     { color: hsl(158 64% 60%); }
+.codeblock .tok-num     { color: hsl(38 92% 65%); }
+.codeblock .tok-fn      { color: hsl(210 80% 75%); }
+
+/* Subtle scan line over hero terminal */
+.scanlines {
+  position: relative;
+  overflow: hidden;
+}
+.scanlines::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    hsl(var(--accent) / 0.05) 50%,
+    transparent 100%
+  );
+  height: 30%;
+  animation: scan 6s linear infinite;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+/* Used on the lime CTA for a tactile pressed feel. */
+.btn-accent-shadow {
+  box-shadow:
+    inset 0 1px 0 0 hsl(0 0% 100% / 0.25),
+    inset 0 -2px 0 0 hsl(0 0% 0% / 0.18),
+    0 8px 24px -10px hsl(var(--accent) / 0.5);
+}
+.btn-accent-shadow:active {
+  transform: translateY(1px);
+  box-shadow:
+    inset 0 1px 0 0 hsl(0 0% 100% / 0.15),
+    inset 0 -1px 0 0 hsl(0 0% 0% / 0.12),
+    0 2px 8px -4px hsl(var(--accent) / 0.4);
 }

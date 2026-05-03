@@ -2,10 +2,11 @@
 
 import { useState } from 'react'
 import { useAccount, useWriteContract } from 'wagmi'
+import { ArrowUpRight, Check, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Card } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { ConnectButton } from '@/components/connect-button'
 import {
   parseUsdcInput,
@@ -26,6 +27,12 @@ interface PayFormProps {
 }
 
 type Stage = 'idle' | 'resolving' | 'transfer' | 'announce' | 'done' | 'error'
+
+const STAGE_LABEL: Record<Exclude<Stage, 'idle' | 'done' | 'error'>, string> = {
+  resolving: 'Resolving via CCIP-Read…',
+  transfer: 'Approve USDC transfer in your wallet',
+  announce: 'Approve ERC-5564 announce',
+}
 
 export function PayForm({ ensName }: PayFormProps) {
   const { isConnected } = useAccount()
@@ -82,78 +89,117 @@ export function PayForm({ ensName }: PayFormProps) {
   const working = stage === 'resolving' || stage === 'transfer' || stage === 'announce'
 
   return (
-    <Card className="space-y-4 p-6">
-      <header>
-        <h2 className="text-lg font-semibold">Pay {ensName}</h2>
-        <p className="text-xs text-muted-foreground">
-          Sends USDC on Base to a fresh stealth address + announces via ERC-5564.
-        </p>
-      </header>
-
-      {!isConnected ? <ConnectButton /> : null}
-
-      <div className="space-y-2">
-        <Label htmlFor="amount">Amount (USDC)</Label>
-        <Input
-          id="amount"
-          type="text"
-          inputMode="decimal"
-          placeholder="1.00"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-        />
-      </div>
-
-      {recipient ? (
-        <div className="rounded border p-3 text-xs text-muted-foreground">
-          <div>
-            Safe: <code>{shortAddr(recipient.safeAddress)}</code>
+    <Card>
+      <CardContent className="space-y-6 px-6 py-6">
+        {!isConnected ? (
+          <div className="flex flex-col items-start gap-3 rounded-lg border border-border bg-muted/40 p-4">
+            <p className="text-sm text-muted-foreground">
+              Connect a wallet on Base to send USDC.
+            </p>
+            <ConnectButton />
           </div>
-          <div>
-            Stealth EOA: <code>{shortAddr(recipient.stealthEoa)}</code>
-          </div>
-          <div>
-            View tag: <code>0x{recipient.viewTag.toString(16).padStart(2, '0')}</code>
+        ) : null}
+
+        <div className="space-y-2.5">
+          <Label htmlFor="amount">Amount · USDC</Label>
+          <div className="relative">
+            <Input
+              id="amount"
+              type="text"
+              inputMode="decimal"
+              placeholder="1.00"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              className="h-14 pr-20 font-mono text-2xl tracking-tight"
+            />
+            <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">
+              usdc
+            </span>
           </div>
         </div>
-      ) : null}
 
-      <Button onClick={handlePay} disabled={!isConnected || working}>
-        {working ? `Working… (${stage})` : 'Send USDC + Announce'}
-      </Button>
+        {recipient ? (
+          <div className="space-y-1.5 rounded-lg border border-border bg-muted/30 p-4 font-mono text-[11px] leading-relaxed">
+            <Row k="resolved" v={ensName} accent />
+            <Row k="safe" v={shortAddr(recipient.safeAddress)} />
+            <Row k="stealth eoa" v={shortAddr(recipient.stealthEoa)} />
+            <Row
+              k="view tag"
+              v={`0x${recipient.viewTag.toString(16).padStart(2, '0')}`}
+            />
+          </div>
+        ) : null}
 
-      {transferTx ? (
-        <p className="text-xs">
-          Transfer:{' '}
-          <a
-            href={`https://basescan.org/tx/${transferTx}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline"
-          >
-            {shortTx(transferTx)}
-          </a>
-        </p>
-      ) : null}
-      {announceTx ? (
-        <p className="text-xs">
-          Announce:{' '}
-          <a
-            href={`https://basescan.org/tx/${announceTx}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline"
-          >
-            {shortTx(announceTx)}
-          </a>
-        </p>
-      ) : null}
-      {errorMsg ? <p className="text-xs text-red-600">{errorMsg}</p> : null}
-      {stage === 'done' ? (
-        <p className="text-xs text-green-700">
-          Sent. The recipient&apos;s dashboard should reflect this within ~2s.
-        </p>
-      ) : null}
+        <Button
+          variant="accent"
+          size="xl"
+          className="w-full"
+          onClick={handlePay}
+          disabled={!isConnected || working || !amount}
+        >
+          {working ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {STAGE_LABEL[stage as 'resolving' | 'transfer' | 'announce']}
+            </>
+          ) : stage === 'done' ? (
+            <>
+              <Check className="h-4 w-4" /> Sent
+            </>
+          ) : (
+            'Send USDC + announce'
+          )}
+        </Button>
+
+        {(transferTx || announceTx || errorMsg || stage === 'done') && (
+          <div className="space-y-2 border-t border-border pt-4 text-xs">
+            {transferTx && (
+              <TxRow label="transfer" hash={transferTx} />
+            )}
+            {announceTx && (
+              <TxRow label="announce" hash={announceTx} />
+            )}
+            {stage === 'done' && (
+              <p className="flex items-center gap-2 text-success">
+                <Check className="h-3.5 w-3.5" />
+                Sent. Recipient dashboard updates in ~2s.
+              </p>
+            )}
+            {errorMsg && (
+              <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 font-mono text-destructive">
+                {errorMsg}
+              </p>
+            )}
+          </div>
+        )}
+      </CardContent>
     </Card>
+  )
+}
+
+function Row({ k, v, accent }: { k: string; v: string; accent?: boolean }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-muted-foreground">{k}</span>
+      <span className={accent ? 'text-accent' : 'text-foreground'}>{v}</span>
+    </div>
+  )
+}
+
+function TxRow({ label, hash }: { label: string; hash: `0x${string}` }) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+        {label}
+      </span>
+      <a
+        href={`https://basescan.org/tx/${hash}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-1.5 font-mono text-foreground hover:text-accent"
+      >
+        {shortTx(hash)} <ArrowUpRight className="h-3 w-3" />
+      </a>
+    </div>
   )
 }

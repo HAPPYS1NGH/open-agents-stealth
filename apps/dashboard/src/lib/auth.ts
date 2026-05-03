@@ -27,7 +27,7 @@ export function buildSiweMessageString(req: SiweRequest, nonce: string): string 
     address: req.address,
     nonce,
     chainId: req.chainId,
-    statement: 'Sign in to Open Agents',
+    statement: 'Sign in to Gabhru',
     uri: req.uri,
     version: '1',
     issuedAt: new Date().toISOString(),

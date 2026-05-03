@@ -15,7 +15,7 @@ const rpcUrl = process.env['NEXT_PUBLIC_BASE_RPC_URL'] ?? 'https://mainnet.base.
  * any wrong-chain state surfaces as a banner and a "switch network" button.
  */
 export const wagmiConfig = getDefaultConfig({
-  appName: 'Open Agents',
+  appName: 'Gabhru',
   projectId: projectId ?? 'placeholder-project-id-set-env-var',
   chains: [base],
   transports: {
