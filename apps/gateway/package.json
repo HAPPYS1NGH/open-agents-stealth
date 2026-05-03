@@ -16,7 +16,7 @@
     "@open-agents/crypto": "workspace:*",
     "@open-agents/db": "workspace:*",
     "hono": "^4.6.9",
-    "viem": "^2.21.41",
+    "viem": "^2.48.8",
     "zod": "^3.23.8"
   },
   "devDependencies": {

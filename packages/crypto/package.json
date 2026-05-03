@@ -22,7 +22,7 @@
     "@noble/curves": "^1.6.0",
     "@noble/hashes": "^1.5.0",
     "@fluidkey/stealth-account-kit": "^1.1.1",
-    "viem": "^2.21.41"
+    "viem": "^2.48.8"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -22,7 +22,7 @@
     "hono": "^4.6.9",
     "jose": "^5.9.6",
     "siwe": "^3.0.0",
-    "viem": "^2.21.41"
+    "viem": "^2.48.8"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
