@@ -1,0 +1,39 @@
+# fly.toml — @open-agents/scanner (long-lived worker mode)
+#
+# Deploy from the REPO ROOT so the Docker build context includes the workspace:
+#   fly deploy --config apps/scanner/fly.toml --dockerfile apps/scanner/Dockerfile
+#
+# Or rename app + region first (the placeholders below need editing):
+#   1. Pick a globally-unique app name and replace "open-agents-scanner".
+#   2. Pick a region close to your Postgres: bom (Mumbai), iad (US-East),
+#      sjc (US-West), lhr (London), fra (Frankfurt). Run `fly platform regions`
+#      for the full list. Same region as your DB minimizes p99 latency.
+
+app = "open-agents-scanner"
+primary_region = "bom"
+
+[build]
+  # Dockerfile lives in apps/scanner/ but the build context is the repo root.
+
+[env]
+  # Worker tick cadence (ms) — 60s is plenty for demo. Lower = faster
+  # detection at higher RPC cost.
+  SCANNER_WORKER_INTERVAL_MS = "60000"
+  SCANNER_WORKER_JITTER_MS = "2000"
+  # Scan window per tick. Default is 50000 (~28h on Base) — for a worker
+  # ticking every 60s we can shrink dramatically; 200 blocks (~7min)
+  # gives 2x overlap headroom at minimal RPC cost.
+  SCAN_LOOKBACK_BLOCKS = "200"
+  # Worker mode does not serve HTTP, so SCANNER_WEBHOOK is irrelevant.
+  SCANNER_WEBHOOK = "off"
+
+[processes]
+  worker = "node dist/worker.js"
+
+# No [[services]] block — worker doesn't expose HTTP. Add one back if you
+# want to re-enable the /webhook + /tick HTTP routes (then change the
+# Dockerfile CMD or fly.toml processes to "node dist/server.js").
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
