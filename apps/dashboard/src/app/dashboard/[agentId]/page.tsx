@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { RecordsForm } from '@/components/records-form'
+import { RederiveStealthKeysButton } from '@/components/rederive-stealth-keys-button'
 import type { AgentResponse, PatchAgentBody } from '@/types/api'
 
 const PARENT_DOMAIN = process.env['NEXT_PUBLIC_PARENT_DOMAIN'] ?? 'gabhru.eth'
@@ -108,6 +109,21 @@ export default function AgentSettingsPage({ params }: PageProps) {
           <div>
             <span className="text-muted-foreground">Treasury Safe: </span>
             <code>{agent.treasurySafeAddress ?? 'not deployed'}</code>
+          </div>
+          <div className="flex items-center justify-between gap-4 pt-2">
+            <div>
+              <span className="text-muted-foreground">stealth-meta record: </span>
+              {agent.textRecords['stealth-meta'] ? (
+                <Badge variant="success">published</Badge>
+              ) : (
+                <Badge variant="secondary">missing — re-derive to publish</Badge>
+              )}
+            </div>
+            <RederiveStealthKeysButton
+              agentId={agentId}
+              hasExistingEnvelope={agent.viewKeyState === 'v1' || agent.viewKeyState === 'stub'}
+              onDone={() => mutate()}
+            />
           </div>
         </CardContent>
       </Card>
