@@ -55,7 +55,7 @@ beforeAll(async () => {
 })
 
 describe('Plan 4 end-to-end', () => {
-  it('walks wizard → api → DB → gateway and proves freshness + receiver-side recovery', async () => {
+  it('walks wizard → api → DB → gateway, returns a stable Safe per cycle and proves receiver-side recovery', async () => {
     const sig = fakeSignature(OWNER_PRIV, STEALTH_DERIVATION_MESSAGE)
     const derived = deriveStealthKeysFromSignature(sig)
 
@@ -105,12 +105,18 @@ describe('Plan 4 end-to-end', () => {
     )
     const [addr1] = decodeAbiParameters([{ type: 'address' }], resBytes1 as `0x${string}`)
     const [addr2] = decodeAbiParameters([{ type: 'address' }], resBytes2 as `0x${string}`)
-    expect(addr1).not.toBe(addr2)
+    // Stable-per-payment-cycle: repeated CCIP-Read queries return the SAME
+    // stealth Safe until the scanner marks the row paid (paid_at IS NULL stays
+    // the "current" announcement). This avoids a payer copying address-A then
+    // having their wallet's own resolution fetch return address-B mid-flow.
+    // Rotation happens after a payment lands, not after every query.
+    expect((addr1 as string).toLowerCase()).toBe((addr2 as string).toLowerCase())
 
     await new Promise((r) => setTimeout(r, 200))
     const db = createDb(process.env['DATABASE_URL']!)
     const announcements = await listAnnouncementsByAgent(db, agentRowId, 100)
-    expect(announcements.length).toBeGreaterThanOrEqual(2)
+    // Exactly one row written (or zero if a prior unpaid row was reused).
+    expect(announcements.length).toBeGreaterThanOrEqual(1)
 
     const newest = announcements[0]!
     const sharedCompressed = secp256k1.getSharedSecret(
