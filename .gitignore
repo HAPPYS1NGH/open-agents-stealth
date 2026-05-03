@@ -53,3 +53,4 @@ broadcast/
 *.sqlite
 *.db
 .tmp/
+.vercel
