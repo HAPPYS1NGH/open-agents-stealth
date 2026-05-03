@@ -82,13 +82,24 @@ export type Agent = typeof agents.$inferSelect
 export type NewAgent = typeof agents.$inferInsert
 
 /**
- * gateway_announcements — one row per stealth address the gateway hands out.
+ * gateway_announcements — one row per stealth payment address the gateway hands out.
  *
- * agent_id        FK (uuid) into agents.id (NOT the on-chain ERC-8004 agentId).
- * stealth_address Checksummed 0x… 20-byte EVM address returned to the resolver.
- * ephemeral_pub   33-byte compressed secp256k1 pubkey R = r·G.
- * view_tag        First byte of keccak256(sharedSecret) for cheap pre-filtering.
- * generated_at    When the gateway wrote the row.
+ * agent_id              FK (uuid) into agents.id (NOT the on-chain ERC-8004 agentId).
+ *
+ * stealth_address       The stealth **EOA**. Derived per-query via ECDH from the
+ *                       agent's stealth meta-address. The receiver re-derives
+ *                       the matching private key from spendPriv + ephemeralPub
+ *                       to sign sweep transactions later.
+ *
+ * stealth_safe_address  The CREATE2 address of a 1-of-1 Safe v1.3.0 owned by
+ *                       stealth_address. This is what the gateway returns as
+ *                       the addr() answer — payments arrive here. Nullable for
+ *                       backward-compat with pre-Path-B rows that only stored
+ *                       the EOA. NEW rows always populate it.
+ *
+ * ephemeral_pub         33-byte compressed secp256k1 pubkey R = r·G.
+ * view_tag              First byte of keccak256(sharedSecret) for cheap pre-filtering.
+ * generated_at          When the gateway wrote the row.
  */
 export const gatewayAnnouncements = pgTable(
   'gateway_announcements',
@@ -98,6 +109,7 @@ export const gatewayAnnouncements = pgTable(
       .notNull()
       .references(() => agents.id, { onDelete: 'cascade' }),
     stealthAddress: text('stealth_address').notNull(),
+    stealthSafeAddress: text('stealth_safe_address'),
     ephemeralPub: text('ephemeral_pub').notNull(),
     viewTag: integer('view_tag').notNull(),
     generatedAt: timestamp('generated_at', { withTimezone: true })
@@ -110,6 +122,7 @@ export const gatewayAnnouncements = pgTable(
       table.agentId,
       table.ephemeralPub,
     ),
+    bySafe: index('gateway_announcements_safe_idx').on(table.stealthSafeAddress),
   }),
 )
 

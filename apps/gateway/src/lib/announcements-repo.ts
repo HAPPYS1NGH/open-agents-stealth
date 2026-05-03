@@ -4,7 +4,10 @@ import { getGatewayDb } from './agents-repo.js'
 
 export interface RecordAnnouncementInput {
   agentRowId: string
+  /** The stealth EOA (signer derived per-query). */
   stealthAddress: string
+  /** The CREATE2 stealth Safe (recipient — what the gateway returns). Optional for legacy callers. */
+  stealthSafeAddress?: string
   ephemeralPub: string
   viewTag: number
 }
@@ -22,6 +25,7 @@ export async function recordAnnouncement(input: RecordAnnouncementInput): Promis
     await insertGatewayAnnouncement(getGatewayDb(), {
       agentId: input.agentRowId,
       stealthAddress: input.stealthAddress,
+      stealthSafeAddress: input.stealthSafeAddress ?? null,
       ephemeralPub: input.ephemeralPub,
       viewTag: input.viewTag,
     })

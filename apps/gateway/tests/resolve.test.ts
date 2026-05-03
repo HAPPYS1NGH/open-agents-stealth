@@ -169,7 +169,7 @@ describe('GET /resolve/:sender/:data', () => {
 
 import { secp256k1 } from '@noble/curves/secp256k1'
 import { bytesToHex } from 'viem'
-import { buildMetaAddress } from '@open-agents/crypto'
+import { buildMetaAddress, predictStealthSafeAddress } from '@open-agents/crypto'
 import { listAnnouncementsByAgent } from '@open-agents/db'
 
 const SPEND_PRIV_T7 = '0x' + '11'.repeat(32)
@@ -263,6 +263,55 @@ describe('GET /resolve/:sender/:data — stealth-meta path', () => {
     expect(newest.viewTag).toBeGreaterThanOrEqual(0)
     expect(newest.viewTag).toBeLessThanOrEqual(255)
     expect(newest.ephemeralPub).toMatch(/^0x[0-9a-f]{66}$/)
+    // Path B: both the stealth EOA and the predicted Safe must be present.
+    expect(newest.stealthAddress).toMatch(/^0x[0-9a-fA-F]{40}$/)
+    expect(newest.stealthSafeAddress).toMatch(/^0x[0-9a-fA-F]{40}$/)
+    // The Safe is exactly what predictStealthSafeAddress(eoa) returns.
+    expect(newest.stealthSafeAddress?.toLowerCase()).toBe(
+      predictStealthSafeAddress(newest.stealthAddress as `0x${string}`).toLowerCase(),
+    )
+    // EOA != Safe (different addresses by construction).
+    expect(newest.stealthAddress.toLowerCase()).not.toBe(newest.stealthSafeAddress?.toLowerCase())
+  })
+
+  it('addr() returns the stealth Safe (not the EOA), matching the announcement', async () => {
+    const node = namehash(`${stealthLabel}.gabhru.eth`)
+    const innerData = encodeFunctionData({
+      abi: parseAbi(['function addr(bytes32) view returns (address)']),
+      functionName: 'addr',
+      args: [node],
+    })
+    const { dnsEncode } = await import('../src/lib/ens-decode.js')
+    const dns = `0x${Buffer.from(dnsEncode(`${stealthLabel}.gabhru.eth`)).toString('hex')}` as `0x${string}`
+    const resolveCalldata = encodeFunctionData({
+      abi: parseAbi(['function resolve(bytes, bytes)']),
+      functionName: 'resolve',
+      args: [dns, innerData],
+    })
+    const sender = '0x000000000000000000000000000000000000FEED'
+    const url = `http://localhost/resolve/${sender}/${resolveCalldata}.json`
+
+    const res = await app.fetch(new Request(url))
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { data: `0x${string}` }
+    const [resBytes] = decodeAbiParameters(
+      [{ type: 'bytes' }, { type: 'uint64' }, { type: 'bytes' }],
+      body.data,
+    )
+    const [returnedAddr] = decodeAbiParameters(
+      [{ type: 'address' }],
+      resBytes as `0x${string}`,
+    )
+
+    await new Promise((r) => setTimeout(r, 100))
+    const db = createDb(DB_URL)
+    const after = await listAnnouncementsByAgent(db, stealthAgentId, 100)
+    const newest = after[0]!
+    expect((returnedAddr as string).toLowerCase()).toBe(
+      newest.stealthSafeAddress!.toLowerCase(),
+    )
+    // Sanity: the returned addr is NOT the EOA; it's the Safe.
+    expect((returnedAddr as string).toLowerCase()).not.toBe(newest.stealthAddress.toLowerCase())
   })
 
   it('text() lookups still return the stealth-meta record verbatim', async () => {

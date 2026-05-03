@@ -6,6 +6,7 @@ import { mintJwt } from '@open-agents/auth'
 import { createDb, insertAgent, listAnnouncementsByAgent } from '@open-agents/db'
 import {
   deriveStealthKeysFromSignature,
+  predictStealthSafeAddress,
   STEALTH_DERIVATION_MESSAGE,
 } from '@open-agents/crypto'
 
@@ -129,7 +130,18 @@ describe('Plan 4 end-to-end', () => {
     const childPoint = spendPoint.add(secp256k1.ProjectivePoint.BASE.multiply(hScalar))
     const childPubXY = childPoint.toRawBytes(false).slice(1)
     const recoveredAddrBytes = keccak_256(childPubXY).slice(-20)
-    const recoveredAddr = `0x${Buffer.from(recoveredAddrBytes).toString('hex')}`.toLowerCase()
-    expect(recoveredAddr).toBe(newest.stealthAddress.toLowerCase())
+    const recoveredEoa = `0x${Buffer.from(recoveredAddrBytes).toString('hex')}`.toLowerCase()
+    expect(recoveredEoa).toBe(newest.stealthAddress.toLowerCase())
+
+    // === Step F (Path B): the address the gateway returned (addr2 — newest)
+    // is the predicted Safe owned by the recovered EOA, NOT the EOA itself.
+    // This is the privacy-meaningful contract: payers fund a Safe address that
+    // can be sweep-deployed via paymaster without ever needing ETH at the EOA.
+    // (addr1 belongs to the previous announcement, also a Safe but for a
+    // different EOA derived from a different ephemeral key.) ===
+    const predictedSafe = predictStealthSafeAddress(recoveredEoa as `0x${string}`).toLowerCase()
+    expect((addr2 as string).toLowerCase()).toBe(predictedSafe)
+    expect(newest.stealthSafeAddress?.toLowerCase()).toBe(predictedSafe)
+    expect(predictedSafe).not.toBe(recoveredEoa)
   })
 })

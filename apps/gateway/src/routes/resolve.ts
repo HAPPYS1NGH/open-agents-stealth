@@ -6,7 +6,7 @@ import { encodeResolveResult, parseResolveData } from '../lib/ens-resolve-data.j
 import { signGatewayResponse } from '../lib/gateway-signer.js'
 import { findGatewayAgent } from '../lib/agents-repo.js'
 import { recordAnnouncement } from '../lib/announcements-repo.js'
-import { deriveStealthForQuery } from '@open-agents/crypto'
+import { deriveStealthForQuery, predictStealthSafeAddress } from '@open-agents/crypto'
 import { env } from '../env.js'
 
 const SIG_VALIDITY_SECONDS = 60n
@@ -64,11 +64,19 @@ resolveRoute.get('/resolve/:sender/:data', async (c) => {
   let value: Hex | string
   if (parsed.kind === 'addr' || parsed.kind === 'addrMulticoin') {
     if (agent.stealthMeta) {
+      // Path B: derive a stealth EOA per query, then predict the deterministic
+      // 1-of-1 Safe owned by it. The Safe address is what we hand back so the
+      // sender pays into a CREATE2 address that can be sweep-deployed later
+      // by a paymaster-sponsored user-op (zero ETH ever needed at the stealth
+      // address). The EOA stays in the announcement so the receiver can
+      // re-derive its private key and sign sweep txs from the Safe.
       const out = deriveStealthForQuery(agent.stealthMeta)
-      value = out.stealthAddress
+      const stealthSafe = predictStealthSafeAddress(out.stealthAddress)
+      value = stealthSafe
       void recordAnnouncement({
         agentRowId: agent.id,
         stealthAddress: out.stealthAddress,
+        stealthSafeAddress: stealthSafe,
         ephemeralPub: out.ephemeralPubKey,
         viewTag: out.viewTag,
       })
