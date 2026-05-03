@@ -5,7 +5,7 @@ import { decodeDnsName } from '../lib/ens-decode.js'
 import { encodeResolveResult, parseResolveData } from '../lib/ens-resolve-data.js'
 import { signGatewayResponse } from '../lib/gateway-signer.js'
 import { findGatewayAgent } from '../lib/agents-repo.js'
-import { recordAnnouncement } from '../lib/announcements-repo.js'
+import { findCurrentAnnouncement, recordAnnouncement } from '../lib/announcements-repo.js'
 import { deriveStealthForQuery, predictStealthSafeAddress } from '@open-agents/crypto'
 import { env } from '../env.js'
 
@@ -64,22 +64,27 @@ resolveRoute.get('/resolve/:sender/:data', async (c) => {
   let value: Hex | string
   if (parsed.kind === 'addr' || parsed.kind === 'addrMulticoin') {
     if (agent.stealthMeta) {
-      // Path B: derive a stealth EOA per query, then predict the deterministic
-      // 1-of-1 Safe owned by it. The Safe address is what we hand back so the
-      // sender pays into a CREATE2 address that can be sweep-deployed later
-      // by a paymaster-sponsored user-op (zero ETH ever needed at the stealth
-      // address). The EOA stays in the announcement so the receiver can
-      // re-derive its private key and sign sweep txs from the Safe.
-      const out = deriveStealthForQuery(agent.stealthMeta)
-      const stealthSafe = predictStealthSafeAddress(out.stealthAddress)
-      value = stealthSafe
-      void recordAnnouncement({
-        agentRowId: agent.id,
-        stealthAddress: out.stealthAddress,
-        stealthSafeAddress: stealthSafe,
-        ephemeralPub: out.ephemeralPubKey,
-        viewTag: out.viewTag,
-      })
+      // Stable stealth address until paid:
+      // 1. Reuse the existing unpaid announcement row so every CCIP-Read query
+      //    returns the same stealth Safe address until a payment lands.
+      // 2. Only derive a fresh stealth address (and write a new row) when there
+      //    is no current unpaid row — or when the existing row has no Safe yet
+      //    (legacy rows written before Path B was introduced).
+      const existing = await findCurrentAnnouncement(agent.id)
+      if (existing?.stealthSafeAddress) {
+        value = existing.stealthSafeAddress
+      } else {
+        const out = deriveStealthForQuery(agent.stealthMeta)
+        const stealthSafe = predictStealthSafeAddress(out.stealthAddress)
+        value = stealthSafe
+        void recordAnnouncement({
+          agentRowId: agent.id,
+          stealthAddress: out.stealthAddress,
+          stealthSafeAddress: stealthSafe,
+          ephemeralPub: out.ephemeralPubKey,
+          viewTag: out.viewTag,
+        })
+      }
     } else {
       value = agent.baseAddr
     }

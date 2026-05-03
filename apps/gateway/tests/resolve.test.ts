@@ -194,7 +194,7 @@ describe('GET /resolve/:sender/:data — stealth-meta path', () => {
     stealthAgentId = agent.id
   })
 
-  it('returns a different addr() answer on each call (fresh stealth address)', async () => {
+  it('returns the SAME addr() answer on repeated calls (stable stealth address until paid)', async () => {
     const node = namehash(`${stealthLabel}.gabhru.eth`)
     const innerData = encodeFunctionData({
       abi: parseAbi(['function addr(bytes32) view returns (address)']),
@@ -212,6 +212,8 @@ describe('GET /resolve/:sender/:data — stealth-meta path', () => {
     const url = `http://localhost/resolve/${sender}/${resolveCalldata}.json`
 
     const res1 = await app.fetch(new Request(url))
+    // Wait for the fire-and-forget recordAnnouncement to complete before the 2nd call
+    await new Promise((r) => setTimeout(r, 100))
     const res2 = await app.fetch(new Request(url))
     expect(res1.status).toBe(200)
     expect(res2.status).toBe(200)
@@ -229,12 +231,13 @@ describe('GET /resolve/:sender/:data — stealth-meta path', () => {
     const [addr1] = decodeAbiParameters([{ type: 'address' }], resultBytes1 as `0x${string}`)
     const [addr2] = decodeAbiParameters([{ type: 'address' }], resultBytes2 as `0x${string}`)
 
-    expect(addr1).not.toBe(addr2)
+    // Both calls must return the same stealth Safe address
+    expect((addr1 as string).toLowerCase()).toBe((addr2 as string).toLowerCase())
+    // It must NOT be the base addr fallback
     expect((addr1 as string).toLowerCase()).not.toBe('0x000000000000000000000000000000000000dead')
-    expect((addr2 as string).toLowerCase()).not.toBe('0x000000000000000000000000000000000000dead')
   })
 
-  it('writes one gateway_announcements row per addr() call', async () => {
+  it('writes exactly one gateway_announcements row for the first addr() call; repeated calls reuse it', async () => {
     const db = createDb(DB_URL)
     const before = await listAnnouncementsByAgent(db, stealthAgentId, 100)
 
@@ -254,12 +257,23 @@ describe('GET /resolve/:sender/:data — stealth-meta path', () => {
     const sender = '0x000000000000000000000000000000000000BEEF'
     const url = `http://localhost/resolve/${sender}/${resolveCalldata}.json`
 
+    // First call — may write a new row if no unpaid row exists yet
     await app.fetch(new Request(url))
     await new Promise((r) => setTimeout(r, 100))
 
-    const after = await listAnnouncementsByAgent(db, stealthAgentId, 100)
-    expect(after.length).toBe(before.length + 1)
-    const newest = after[0]!
+    const afterFirst = await listAnnouncementsByAgent(db, stealthAgentId, 100)
+    // At most one new row should have been written since `before`
+    expect(afterFirst.length).toBeLessThanOrEqual(before.length + 1)
+
+    // Make two more calls — row count must NOT grow (stable reuse)
+    await app.fetch(new Request(url))
+    await app.fetch(new Request(url))
+    await new Promise((r) => setTimeout(r, 100))
+
+    const afterRepeated = await listAnnouncementsByAgent(db, stealthAgentId, 100)
+    expect(afterRepeated.length).toBe(afterFirst.length)
+
+    const newest = afterRepeated[0]!
     expect(newest.viewTag).toBeGreaterThanOrEqual(0)
     expect(newest.viewTag).toBeLessThanOrEqual(255)
     expect(newest.ephemeralPub).toMatch(/^0x[0-9a-f]{66}$/)

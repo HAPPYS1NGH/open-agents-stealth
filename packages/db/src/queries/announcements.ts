@@ -1,4 +1,4 @@
-import { desc, eq, lt } from 'drizzle-orm'
+import { and, desc, eq, isNull, lt } from 'drizzle-orm'
 import type { DbClient } from '../client.js'
 import {
   gatewayAnnouncements,
@@ -19,6 +19,29 @@ export async function insertGatewayAnnouncement(
   const [row] = await db.insert(gatewayAnnouncements).values(data).returning()
   if (!row) throw new Error('insertGatewayAnnouncement: no row returned')
   return row
+}
+
+/**
+ * Returns the most-recent unpaid announcement row for an agent (i.e. `paid_at IS NULL`),
+ * or null if no such row exists. The gateway reuses this row for all CCIP-Read queries
+ * until a payment is detected, ensuring stable addresses per-query cycle.
+ */
+export async function findCurrentAnnouncement(
+  db: DbClient,
+  agentRowId: string,
+): Promise<GatewayAnnouncement | null> {
+  const [row] = await db
+    .select()
+    .from(gatewayAnnouncements)
+    .where(
+      and(
+        eq(gatewayAnnouncements.agentId, agentRowId),
+        isNull(gatewayAnnouncements.paidAt),
+      ),
+    )
+    .orderBy(desc(gatewayAnnouncements.generatedAt))
+    .limit(1)
+  return row ?? null
 }
 
 /**

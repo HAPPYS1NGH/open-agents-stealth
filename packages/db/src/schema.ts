@@ -100,6 +100,10 @@ export type NewAgent = typeof agents.$inferInsert
  * ephemeral_pub         33-byte compressed secp256k1 pubkey R = r·G.
  * view_tag              First byte of keccak256(sharedSecret) for cheap pre-filtering.
  * generated_at          When the gateway wrote the row.
+ * paid_at               Set when a payment is detected for this stealth address.
+ *                       NULL = "current" — the gateway returns this address for new
+ *                       queries. Non-NULL = paid; the gateway will derive a fresh
+ *                       stealth address on the next query and write a new row.
  */
 export const gatewayAnnouncements = pgTable(
   'gateway_announcements',
@@ -115,6 +119,7 @@ export const gatewayAnnouncements = pgTable(
     generatedAt: timestamp('generated_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
+    paidAt: timestamp('paid_at', { withTimezone: true }),
   },
   (table) => ({
     byAgent: index('gateway_announcements_agent_idx').on(table.agentId, table.generatedAt),

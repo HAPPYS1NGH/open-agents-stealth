@@ -1,4 +1,4 @@
-import { insertGatewayAnnouncement } from '@open-agents/db'
+import { findCurrentAnnouncement as dbFindCurrentAnnouncement, insertGatewayAnnouncement, type GatewayAnnouncement } from '@open-agents/db'
 import { env } from '../env.js'
 import { getGatewayDb } from './agents-repo.js'
 
@@ -10,6 +10,22 @@ export interface RecordAnnouncementInput {
   stealthSafeAddress?: string
   ephemeralPub: string
   viewTag: number
+}
+
+/**
+ * Returns the current unpaid announcement for the given agent, or null if none exists.
+ * Returns null when env.GATEWAY_ANNOUNCEMENTS === 'off'.
+ */
+export async function findCurrentAnnouncement(
+  agentRowId: string,
+): Promise<GatewayAnnouncement | null> {
+  if (env.GATEWAY_ANNOUNCEMENTS === 'off') return null
+  try {
+    return await dbFindCurrentAnnouncement(getGatewayDb(), agentRowId)
+  } catch (err) {
+    console.error('findCurrentAnnouncement: query failed (swallowed)', err)
+    return null
+  }
 }
 
 /**
