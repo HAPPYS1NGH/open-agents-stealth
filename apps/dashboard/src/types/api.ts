@@ -11,6 +11,8 @@ export interface AgentResponse {
   isActive?: boolean
   createdAt: string
   updatedAt?: string
+  viewKeyState?: 'none' | 'stub' | 'v1'
+  stealthMetaPublished?: boolean
 }
 
 export interface MeResponse {

@@ -54,3 +54,65 @@ describe('GET /me', () => {
     expect(res.headers.get('x-refreshed-token')).toMatch(/^[\w-]+\.[\w-]+\.[\w-]+$/)
   })
 })
+
+describe('GET /me — Plan 4 view-key state surfacing', () => {
+  it('reports viewKeyState=none for new agents', async () => {
+    const db = createDb(process.env['DATABASE_URL']!)
+    const fresh = await insertAgent(db, {
+      ownerEoa: OWNER,
+      subnameLabel: 'me-fresh-' + Date.now(),
+      baseAddr: '0x0000000000000000000000000000000000000007',
+    })
+
+    const res = await app.fetch(
+      new Request('http://localhost/me', {
+        headers: { Authorization: `Bearer ${validToken}` },
+      }),
+    )
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { agents: Array<{ id: string; viewKeyState: string; stealthMetaPublished: boolean }> }
+    const me = body.agents.find((a) => a.id === fresh.id)
+    expect(me?.viewKeyState).toBe('none')
+    expect(me?.stealthMetaPublished).toBe(false)
+  })
+
+  it('reports viewKeyState=stub for Plan 3 stub rows', async () => {
+    const db = createDb(process.env['DATABASE_URL']!)
+    const stub = await insertAgent(db, {
+      ownerEoa: OWNER,
+      subnameLabel: 'me-stub-' + Date.now(),
+      baseAddr: '0x0000000000000000000000000000000000000008',
+      viewKeyEncrypted: 'stub:0xdeadbeef',
+    })
+
+    const res = await app.fetch(
+      new Request('http://localhost/me', {
+        headers: { Authorization: `Bearer ${validToken}` },
+      }),
+    )
+    const body = (await res.json()) as { agents: Array<{ id: string; viewKeyState: string }> }
+    const me = body.agents.find((a) => a.id === stub.id)
+    expect(me?.viewKeyState).toBe('stub')
+  })
+
+  it('reports viewKeyState=v1 + stealthMetaPublished=true after Plan 4 rotation', async () => {
+    const db = createDb(process.env['DATABASE_URL']!)
+    const real = await insertAgent(db, {
+      ownerEoa: OWNER,
+      subnameLabel: 'me-v1-' + Date.now(),
+      baseAddr: '0x0000000000000000000000000000000000000009',
+      viewKeyEncrypted: 'v1:eyJrIjoidiJ9',
+      textRecords: { 'stealth-meta': '0x' + 'aa'.repeat(33) + 'bb'.repeat(33) },
+    })
+
+    const res = await app.fetch(
+      new Request('http://localhost/me', {
+        headers: { Authorization: `Bearer ${validToken}` },
+      }),
+    )
+    const body = (await res.json()) as { agents: Array<{ id: string; viewKeyState: string; stealthMetaPublished: boolean }> }
+    const me = body.agents.find((a) => a.id === real.id)
+    expect(me?.viewKeyState).toBe('v1')
+    expect(me?.stealthMetaPublished).toBe(true)
+  })
+})
