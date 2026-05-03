@@ -73,3 +73,43 @@ export async function deleteAnnouncementsOlderThan(
     .returning({ id: gatewayAnnouncements.id })
   return rows.length
 }
+
+/**
+ * Marks the most recent UNPAID announcement matching `addr` (either as
+ * stealth_address or stealth_safe_address) as paid by stamping
+ * `paid_at = now()`. The next call to `findCurrentAnnouncement` for the
+ * same agent will then derive a fresh issuance.
+ *
+ * Returns the updated row or null if no matching unpaid announcement was
+ * found (e.g., a duplicate webhook push for an already-marked-paid stealth).
+ *
+ * Match semantics: the scanner sees the *Transfer.to* which is the Safe
+ * address, so we check stealth_safe_address first — but legacy or
+ * configuration-divergent rows may set stealth_address only, so we fall back.
+ */
+export async function markAnnouncementPaid(
+  db: DbClient,
+  addr: string,
+): Promise<GatewayAnnouncement | null> {
+  const lower = addr.toLowerCase()
+  const candidates = await db
+    .select()
+    .from(gatewayAnnouncements)
+    .where(isNull(gatewayAnnouncements.paidAt))
+    .orderBy(desc(gatewayAnnouncements.generatedAt))
+    .limit(200)
+
+  const match = candidates.find(
+    (r) =>
+      (r.stealthSafeAddress?.toLowerCase() ?? '') === lower ||
+      r.stealthAddress.toLowerCase() === lower,
+  )
+  if (!match) return null
+
+  const [updated] = await db
+    .update(gatewayAnnouncements)
+    .set({ paidAt: new Date() })
+    .where(eq(gatewayAnnouncements.id, match.id))
+    .returning()
+  return updated ?? null
+}

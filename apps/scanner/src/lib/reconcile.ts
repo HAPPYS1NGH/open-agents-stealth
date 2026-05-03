@@ -2,6 +2,7 @@ import { desc, inArray } from 'drizzle-orm'
 import {
   gatewayAnnouncements,
   insertPayment,
+  markAnnouncementPaid,
   paymentExistsByTxLog,
   type DbClient,
 } from '@open-agents/db'
@@ -112,6 +113,21 @@ export async function reconcileLogsToPayments(
         fromAddress: log.args.from.toLowerCase(),
       })
       inserted++
+      // Best-effort: rotate the gateway's stable-cycle by marking this
+      // announcement paid. Failure here is non-fatal — the next tick re-runs
+      // the same range and re-attempts. We don't want a transient DB hiccup
+      // to undo the inserted++ counter.
+      await markAnnouncementPaid(args.db, log.args.to.toLowerCase()).catch(
+        (err) =>
+          console.warn(
+            JSON.stringify({
+              level: 'warn',
+              msg: 'markAnnouncementPaid_failed',
+              stealthAddress: log.args.to.toLowerCase(),
+              err: String(err),
+            }),
+          ),
+      )
     } catch (err) {
       // Lost a race against another scanner replica. The unique constraint
       // protected us; count as skipped, not failed.

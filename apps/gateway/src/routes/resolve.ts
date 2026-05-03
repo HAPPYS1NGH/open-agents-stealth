@@ -1,10 +1,18 @@
 import { Hono } from 'hono'
-import { decodeAbiParameters, getAddress, type Address, type Hex } from 'viem'
+import {
+  decodeAbiParameters,
+  encodeAbiParameters,
+  getAddress,
+  type Address,
+  type Hex,
+} from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
+import { insertGatewayAnnouncement } from '@open-agents/db'
 import { decodeDnsName } from '../lib/ens-decode.js'
 import { encodeResolveResult, parseResolveData } from '../lib/ens-resolve-data.js'
 import { signGatewayResponse } from '../lib/gateway-signer.js'
 import { findGatewayAgent } from '../lib/agents-repo.js'
+import { getGatewayDb } from '../lib/agents-repo.js'
 import { findCurrentAnnouncement, recordAnnouncement } from '../lib/announcements-repo.js'
 import { deriveStealthForQuery, predictStealthSafeAddress } from '@open-agents/crypto'
 import { env } from '../env.js'
@@ -89,7 +97,53 @@ resolveRoute.get('/resolve/:sender/:data', async (c) => {
       value = agent.baseAddr
     }
   } else if (parsed.kind === 'text') {
-    value = agent.textRecords[parsed.key] ?? ''
+    if (parsed.key === 'stealth-payload') {
+      // Plan 5: sender consoles need the stealth EOA + ephemeral pubkey +
+      // view tag to call ERC-5564 announce(). We expose the current cycle's
+      // issuance via this synthetic text record.
+      //
+      // Reads the same findCurrentAnnouncement the addr() branch uses, so
+      // two consecutive CCIP-Read calls (`addr` → `text("stealth-payload")`)
+      // reference the same issuance row by construction — no race, no cache.
+      let issuance = await findCurrentAnnouncement(agent.id)
+      if (!issuance && agent.stealthMeta) {
+        const out = deriveStealthForQuery(agent.stealthMeta)
+        const stealthSafe = predictStealthSafeAddress(out.stealthAddress)
+        // We await this insert so the encode below sees the row we just wrote.
+        // recordAnnouncement is fire-and-forget elsewhere, but here we need
+        // synchronous availability.
+        try {
+          issuance = await insertGatewayAnnouncement(getGatewayDb(), {
+            agentId: agent.id,
+            stealthAddress: out.stealthAddress,
+            stealthSafeAddress: stealthSafe,
+            ephemeralPub: out.ephemeralPubKey,
+            viewTag: out.viewTag,
+          })
+        } catch (err) {
+          console.error('stealth-payload: insert failed', err)
+        }
+      }
+
+      if (!issuance) {
+        // No stealth-meta on this agent — return empty bytes.
+        value = '0x'
+      } else {
+        // abi.encode(address stealthEoa, bytes ephemeralPub, uint8 viewTag).
+        // Sender console abi-decodes the same shape and passes
+        // (stealthEoa, ephemeralPub, [viewTag]) to ERC-5564 announce().
+        value = encodeAbiParameters(
+          [{ type: 'address' }, { type: 'bytes' }, { type: 'uint8' }],
+          [
+            issuance.stealthAddress as `0x${string}`,
+            issuance.ephemeralPub as `0x${string}`,
+            issuance.viewTag,
+          ],
+        )
+      }
+    } else {
+      value = agent.textRecords[parsed.key] ?? ''
+    }
   } else if (parsed.kind === 'contenthash') {
     value = '0x'
   } else {
