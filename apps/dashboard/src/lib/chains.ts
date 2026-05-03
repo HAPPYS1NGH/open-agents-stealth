@@ -1,5 +1,5 @@
-import { base } from 'wagmi/chains'
-import { http } from 'viem'
+import { base, mainnet } from 'wagmi/chains'
+import { createPublicClient, http } from 'viem'
 import { createConfig } from 'wagmi'
 import { getDefaultConfig } from '@rainbow-me/rainbowkit'
 
@@ -25,3 +25,18 @@ export const wagmiConfig = getDefaultConfig({
 }) as ReturnType<typeof createConfig>
 
 export { base }
+
+/**
+ * One-off read-only client used by the sender console (`/pay/[ens]`) for
+ * ENS lookups via the universal resolver. ENS lives on Ethereum mainnet;
+ * the visitor's connected wallet stays on Base for the writes, so we keep
+ * mainnet OFF the wagmi chain list — adding it would prompt RainbowKit to
+ * surface a chain-switch UI mid-payment.
+ */
+const mainnetRpc =
+  process.env['NEXT_PUBLIC_MAINNET_RPC_URL'] ?? 'https://eth.llamarpc.com'
+
+export const ensReadClient = createPublicClient({
+  chain: mainnet,
+  transport: http(mainnetRpc),
+})
