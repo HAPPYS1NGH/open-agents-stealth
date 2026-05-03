@@ -23,11 +23,16 @@ const PROFILE_KEYS = [
   { key: 'name', label: 'name', placeholder: 'Display name', type: 'text' as const },
   { key: 'description', label: 'description', placeholder: 'Short bio (≤160 chars)', type: 'textarea' as const },
   { key: 'avatar', label: 'avatar', placeholder: 'https://… (image URL or ipfs://…)', type: 'url-or-ipfs' as const },
-  { key: 'url', label: 'url', placeholder: 'https://your-website.example', type: 'url' as const },
-  { key: 'com.github', label: 'com.github', placeholder: 'github-handle (no @)', type: 'text' as const },
-  { key: 'com.twitter', label: 'com.twitter', placeholder: 'twitter-handle (no @)', type: 'text' as const },
 ] as const
 type ProfileKey = (typeof PROFILE_KEYS)[number]['key']
+
+/**
+ * ENSIP-25 (`agent-registration[<registry>][<agentId>]`) records are
+ * written by the on-chain register flow (Plan 4) — never by the user
+ * directly. We render them read-only so the owner can see which
+ * registries their ENS name is verified against.
+ */
+const ENSIP25_KEY_REGEX = /^agent-registration\[([^\]]+)\]\[([^\]]+)\]$/
 
 export interface RecordsFormProps {
   initial: Record<string, string>
@@ -84,8 +89,6 @@ function validate(
     if (v.length === 0) continue
     if (pk.key === 'description' && v.length > 160) {
       errors.profile[pk.key] = 'description must be ≤160 chars (ENSIP-18)'
-    } else if (pk.key === 'url' && !isHttpUrl(v)) {
-      errors.profile[pk.key] = 'url must be http(s)://…'
     } else if (pk.key === 'avatar' && !isAvatarValue(v)) {
       errors.profile[pk.key] = 'avatar must be http(s)://, ipfs://, or eip155:…'
     }
@@ -136,6 +139,29 @@ export function RecordsForm({ initial, onSubmit, submitLabel = 'Save records' }:
     }
   }
 
+  // Compute the "preview" of what agent-context JSON would be if we
+  // auto-derived it from the ENSIP-18 inputs. Per ENSIP-26 the JSON
+  // typically holds {name, description, image, …}; keep our derivation
+  // aligned so consumers that only parse agent-context still see the
+  // canonical values.
+  const derivedAgentContext = (() => {
+    const j: Record<string, string> = {}
+    if (profile.name.trim()) j.name = profile.name.trim()
+    if (profile.description.trim()) j.description = profile.description.trim()
+    if (profile.avatar.trim()) j.image = profile.avatar.trim()
+    return Object.keys(j).length > 0 ? JSON.stringify(j, null, 2) : ''
+  })()
+
+  // Find any ENSIP-25 verification records in the agent's existing records
+  // so we can show them as read-only chips.
+  const ensip25Rows = Object.entries(initial)
+    .map(([k, v]) => {
+      const m = ENSIP25_KEY_REGEX.exec(k)
+      if (!m) return null
+      return { key: k, registry: m[1]!, agentId: m[2]!, value: v }
+    })
+    .filter((row): row is { key: string; registry: string; agentId: string; value: string } => row !== null)
+
   return (
     <div className="space-y-6">
       <Card>
@@ -144,7 +170,9 @@ export function RecordsForm({ initial, onSubmit, submitLabel = 'Save records' }:
           <CardDescription>
             Standard ENS profile keys. Each saves as a discrete <code>text(node, key)</code>{' '}
             record so wallets, third-party apps, and our records-preview page render them
-            individually — not nested inside <code>agent-context</code> JSON.
+            individually. ENSIP-26 consumers that only read <code>agent-context</code>{' '}
+            JSON also see these — the agent-context blob below is auto-derived from these
+            fields so the same value reaches both audiences.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -176,22 +204,57 @@ export function RecordsForm({ initial, onSubmit, submitLabel = 'Save records' }:
         </CardContent>
       </Card>
 
+      {ensip25Rows.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Verification · ENSIP-25</CardTitle>
+            <CardDescription>
+              On-chain agent registries this ENS name is verified against.
+              Set automatically by the register-onchain flow — read-only here.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {ensip25Rows.map((row) => (
+              <div
+                key={row.key}
+                className="flex flex-col gap-1 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs"
+              >
+                <code className="font-mono text-foreground">{row.key}</code>
+                <div className="flex gap-4 font-mono text-[11px] text-muted-foreground">
+                  <span>registry: {row.registry}</span>
+                  <span>agentId: {row.agentId}</span>
+                  <span>value: {row.value}</span>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle>Agent · ENSIP-26</CardTitle>
           <CardDescription>
-            Read by ENS-aware AI clients when looking up your agent.{' '}
-            <code>agent-context</code> is a JSON profile blob (legacy format —
-            prefer the per-key inputs above for new fields). The endpoint fields
-            point to your agent's MCP server, A2A endpoint, or website.
+            Read by ENS-aware AI clients. The endpoint fields point to your agent's
+            MCP server, A2A endpoint, or website. <code>agent-context</code> is the
+            ENSIP-26 JSON blob — auto-derived from your ENSIP-18 fields above.
+            Override below only if you need ENSIP-26-specific keys not covered by
+            ENSIP-18.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="agent-context">agent-context (JSON)</Label>
+            <Label htmlFor="agent-context">
+              agent-context (JSON){' '}
+              {!contextValue.trim() && derivedAgentContext && (
+                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                  · auto-derived from ENSIP-18
+                </span>
+              )}
+            </Label>
             <Textarea
               id="agent-context"
-              placeholder='{"name":"My agent","description":"…","image":"https://…"}'
+              placeholder={derivedAgentContext || '{"foo":"bar"}'}
               rows={4}
               value={contextValue}
               onChange={(e) => setContextValue(e.target.value)}

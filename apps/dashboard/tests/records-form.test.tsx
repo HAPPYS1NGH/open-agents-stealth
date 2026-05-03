@@ -11,7 +11,7 @@ describe('RecordsForm', () => {
           'agent-context': '{"name":"hi"}',
           'agent-endpoint[mcp]': 'https://mybot.example/mcp',
           name: 'My Agent',
-          'com.github': 'happys1ngh',
+          description: 'A test agent',
         }}
         onSubmit={() => {}}
       />,
@@ -22,7 +22,7 @@ describe('RecordsForm', () => {
     expect((screen.getByLabelText('agent-endpoint[mcp]') as HTMLInputElement).value)
       .toBe('https://mybot.example/mcp')
     expect((screen.getByLabelText('name') as HTMLInputElement).value).toBe('My Agent')
-    expect((screen.getByLabelText('com.github') as HTMLInputElement).value).toBe('happys1ngh')
+    expect((screen.getByLabelText('description') as HTMLTextAreaElement).value).toBe('A test agent')
   })
 
   it('rejects invalid JSON in agent-context', async () => {
@@ -67,7 +67,7 @@ describe('RecordsForm', () => {
     expect(arg['agent-endpoint[mcp]']).toBeUndefined()
   })
 
-  it('submits ENSIP-18 profile keys as discrete records', async () => {
+  it('submits ENSIP-18 profile keys (name/description/avatar) as discrete records', async () => {
     const user = userEvent.setup()
     const onSubmit = vi.fn()
     render(<RecordsForm initial={{}} onSubmit={onSubmit} />)
@@ -75,8 +75,6 @@ describe('RecordsForm', () => {
     await user.type(screen.getByLabelText('name'), 'try-2 agent')
     await user.type(screen.getByLabelText('description'), 'Stealth-payment-enabled AI agent')
     await user.type(screen.getByLabelText('avatar'), 'https://example.com/avatar.png')
-    await user.type(screen.getByLabelText('url'), 'https://github.com/HAPPYS1NGH/open-agents-stealth')
-    await user.type(screen.getByLabelText('com.github'), 'HAPPYS1NGH')
     await user.click(screen.getByRole('button', { name: /save records/i }))
 
     expect(onSubmit).toHaveBeenCalledOnce()
@@ -84,10 +82,9 @@ describe('RecordsForm', () => {
     expect(arg['name']).toBe('try-2 agent')
     expect(arg['description']).toBe('Stealth-payment-enabled AI agent')
     expect(arg['avatar']).toBe('https://example.com/avatar.png')
-    expect(arg['url']).toBe('https://github.com/HAPPYS1NGH/open-agents-stealth')
-    expect(arg['com.github']).toBe('HAPPYS1NGH')
-    // ENSIP-26 keys absent because we didn't fill them.
-    expect(arg['agent-context']).toBeUndefined()
+    // url / com.github / com.twitter intentionally absent — removed from form
+    expect(arg['url']).toBeUndefined()
+    expect(arg['com.github']).toBeUndefined()
   })
 
   it('rejects description longer than 160 chars (ENSIP-18)', async () => {
@@ -114,5 +111,27 @@ describe('RecordsForm', () => {
     expect(onSubmit).toHaveBeenCalledOnce()
     const arg = onSubmit.mock.calls[0]![0] as Record<string, string>
     expect(arg['avatar']).toBe('ipfs://bafyabc123')
+  })
+
+  it('renders ENSIP-25 verification records read-only when present', () => {
+    render(
+      <RecordsForm
+        initial={{
+          'agent-registration[8453][46488]': '1',
+          'agent-registration[0x000100000101148004a169fb4a3325136eb29fa0ceb6d2e539a432][167]': '1',
+        }}
+        onSubmit={() => {}}
+      />,
+    )
+
+    expect(screen.getByText('Verification · ENSIP-25')).toBeInTheDocument()
+    expect(screen.getByText('agent-registration[8453][46488]')).toBeInTheDocument()
+    expect(screen.getByText(/registry: 8453/)).toBeInTheDocument()
+    expect(screen.getByText(/agentId: 46488/)).toBeInTheDocument()
+  })
+
+  it('hides the Verification card when no ENSIP-25 records exist', () => {
+    render(<RecordsForm initial={{ name: 'foo' }} onSubmit={() => {}} />)
+    expect(screen.queryByText('Verification · ENSIP-25')).not.toBeInTheDocument()
   })
 })
