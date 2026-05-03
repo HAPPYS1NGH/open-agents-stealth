@@ -58,9 +58,16 @@ describe('POST /agents/:id/register-onchain', () => {
     )
 
     expect(res.status).toBe(200)
-    const body = await res.json() as { agentId: string; agentWalletEoa: string }
+    const body = await res.json() as {
+      agentId: string
+      agentWalletEoa: string
+      textRecords: Record<string, string>
+    }
     expect(body.agentId).toBe('8453:42')
     expect(body.agentWalletEoa.toLowerCase()).toBe(OWNER.toLowerCase())
+    // Spec §5.5: the ENSIP-26 link record must be auto-published so wallets
+    // can verify the on-chain ↔ ENS binding without an extra API hop.
+    expect(body.textRecords['agent-registration[8453][42]']).toBe('1')
   })
 
   it('400s when checkRegisterReceipt fails', async () => {

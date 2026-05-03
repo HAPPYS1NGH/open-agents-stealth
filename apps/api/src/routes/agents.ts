@@ -162,10 +162,24 @@ agentsRoute.patch(
       return c.json({ error: 'Forbidden' }, 403)
     }
 
+    // Merge text_records — never replace the whole map. Step-2 stealth-meta
+    // and step-3 agent-registration[*] keys are written outside this route and
+    // must survive a step-5 records form save. To remove a key, the client
+    // must explicitly set it to the empty string.
+    let nextRecords: Record<string, string> | undefined
+    if (body.textRecords !== undefined) {
+      const existing = (agent.textRecords as Record<string, string> | null) ?? {}
+      nextRecords = { ...existing }
+      for (const [k, v] of Object.entries(body.textRecords)) {
+        if (v === '') delete nextRecords[k]
+        else nextRecords[k] = v
+      }
+    }
+
     const updated = await updateAgent(db, id, {
       ...(body.baseAddr !== undefined && { baseAddr: body.baseAddr }),
       ...(body.agentWalletEoa !== undefined && { agentWalletEoa: body.agentWalletEoa }),
-      ...(body.textRecords !== undefined && { textRecords: body.textRecords }),
+      ...(nextRecords !== undefined && { textRecords: nextRecords }),
       ...(body.treasurySafeAddress !== undefined && { treasurySafeAddress: body.treasurySafeAddress }),
       ...(body.viewKeyEncrypted !== undefined && { viewKeyEncrypted: body.viewKeyEncrypted }),
     })
@@ -248,15 +262,28 @@ agentsRoute.post(
       )
     }
 
+    // Spec §5.5: publish the ERC-8004 ↔ ENS link as an ENSIP-26 text record
+    // `agent-registration[<chainId>][<tokenId>]: "1"`. Wallets that read this
+    // record can verify on-chain that the subname owner is the registered
+    // agent NFT holder. We merge into existing text_records so this survives
+    // a later step-5 records edit.
+    const registrationKey = `agent-registration[${chainIdStr}][${tokenIdStr}]`
+    const mergedRecords: Record<string, string> = {
+      ...((agent.textRecords as Record<string, string> | null) ?? {}),
+      [registrationKey]: '1',
+    }
+
     const updated = await updateAgent(db, id, {
       agentId: body.agentId,
       agentWalletEoa: info.agentWalletAddress.toLowerCase(),
+      textRecords: mergedRecords,
     })
 
     return c.json({
       id: updated.id,
       agentId: updated.agentId,
       agentWalletEoa: updated.agentWalletEoa,
+      textRecords: updated.textRecords,
     })
   },
 )

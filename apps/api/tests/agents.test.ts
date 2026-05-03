@@ -148,4 +148,70 @@ describe('PATCH /agents/:id', () => {
     )
     expect(patchRes.status).toBe(403)
   })
+
+  it('merges text_records — does not clobber stealth-meta or agent-registration[*]', async () => {
+    const createRes = await app.fetch(
+      new Request('http://localhost/agents', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${validToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subnameLabel: 'patch-merge-' + Date.now(),
+          baseAddr: '0x' + '0'.repeat(40),
+          textRecords: {
+            'stealth-meta': '0x' + 'ab'.repeat(33) + 'cd'.repeat(33),
+            'agent-registration[8453][42]': '1',
+          },
+        }),
+      }),
+    )
+    const { id } = await createRes.json() as { id: string }
+
+    // Step-5-style PATCH that only sets the user-editable keys.
+    const patchRes = await app.fetch(
+      new Request(`http://localhost/agents/${id}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${validToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          textRecords: {
+            'agent-context': '{"name":"merged"}',
+            'agent-endpoint[web]': 'https://example.com',
+          },
+        }),
+      }),
+    )
+    expect(patchRes.status).toBe(200)
+    const body = await patchRes.json() as { textRecords: Record<string, string> }
+    expect(body.textRecords['agent-context']).toBe('{"name":"merged"}')
+    expect(body.textRecords['agent-endpoint[web]']).toBe('https://example.com')
+    // The auto-set keys MUST survive.
+    expect(body.textRecords['stealth-meta']).toBe('0x' + 'ab'.repeat(33) + 'cd'.repeat(33))
+    expect(body.textRecords['agent-registration[8453][42]']).toBe('1')
+  })
+
+  it('removes a text_record key when the client sends an empty string', async () => {
+    const createRes = await app.fetch(
+      new Request('http://localhost/agents', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${validToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subnameLabel: 'patch-delete-' + Date.now(),
+          baseAddr: '0x' + '0'.repeat(40),
+          textRecords: { 'agent-context': '{"x":1}', 'keep-me': 'yes' },
+        }),
+      }),
+    )
+    const { id } = await createRes.json() as { id: string }
+
+    const patchRes = await app.fetch(
+      new Request(`http://localhost/agents/${id}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${validToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ textRecords: { 'agent-context': '' } }),
+      }),
+    )
+    expect(patchRes.status).toBe(200)
+    const body = await patchRes.json() as { textRecords: Record<string, string> }
+    expect(body.textRecords['agent-context']).toBeUndefined()
+    expect(body.textRecords['keep-me']).toBe('yes')
+  })
 })
