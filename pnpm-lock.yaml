@@ -36,7 +36,7 @@ importers:
         specifier: ^4.6.9
         version: 4.12.16
       viem:
-        specifier: ^2.21.41
+        specifier: ^2.48.8
         version: 2.48.8(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@3.25.76)
       zod:
         specifier: ^3.23.8
@@ -112,7 +112,7 @@ importers:
         specifier: ^2.5.4
         version: 2.6.1
       viem:
-        specifier: ^2.21.41
+        specifier: ^2.48.8
         version: 2.48.8(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@3.25.76)
       wagmi:
         specifier: ^2.13.3
@@ -191,7 +191,7 @@ importers:
         specifier: ^4.6.9
         version: 4.12.16
       viem:
-        specifier: ^2.21.41
+        specifier: ^2.48.8
         version: 2.48.8(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@3.25.76)
       zod:
         specifier: ^3.23.8
@@ -231,7 +231,7 @@ importers:
         specifier: ^4.6.9
         version: 4.12.16
       viem:
-        specifier: ^2.21.41
+        specifier: ^2.48.8
         version: 2.48.8(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@3.25.76)
       zod:
         specifier: ^3.23.8
@@ -262,7 +262,7 @@ importers:
         specifier: ^3.0.0
         version: 3.0.0(ethers@6.16.0(bufferutil@4.1.0)(utf-8-validate@5.0.10))
       viem:
-        specifier: ^2.21.41
+        specifier: ^2.48.8
         version: 2.48.8(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@4.4.2)
     devDependencies:
       '@types/node':
@@ -289,7 +289,7 @@ importers:
         specifier: ^1.5.0
         version: 1.8.0
       viem:
-        specifier: ^2.21.41
+        specifier: ^2.48.8
         version: 2.48.8(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@3.25.76)
     devDependencies:
       '@types/node':
