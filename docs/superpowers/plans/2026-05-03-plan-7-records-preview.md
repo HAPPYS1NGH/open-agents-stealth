@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship a `/dashboard/[agentId]/records-preview` page that surfaces every record we serve over CCIP-Read — both **text records** (standard ENSIP-18 keys like `alias`, `name`, `description`, `avatar`, `header`, `url`, `email`, `location`, `timezone`, `language`, `com.github`, `com.twitter`, `org.telegram`, `primary-contact`, plus any custom keys the agent has saved) AND **address records** (the default ENS `addr()` value + the per-cycle stealth Safe address the gateway is currently issuing). The owner sees what `app.ens.domains` *should* show but doesn't (the ens.domains app skips CCIP-Read for text records and renders only the default `addr()`), plus an optional "How others see you" toggle that runs live `getEnsText` lookups via viem's universal resolver to prove CCIP-Read is reaching third-party clients.
+**Goal:** Ship a `/dashboard/[agentId]/records-preview` page that surfaces every record we serve over CCIP-Read — **text records** (standard ENSIP-18 profile keys like `name`, `description`, `avatar`, `url`, `com.github`, etc., plus any custom keys the agent has saved), **ENSIP-25 verification records** (the parameterized `agent-registration[<registry>][<agentId>]` keys that prove an agent is registered in an on-chain registry like ERC-8004), AND **address records** (the default ENS `addr()` value + the per-cycle stealth Safe address the gateway is currently issuing). The owner sees what `app.ens.domains` *should* show but doesn't (the ens.domains app skips CCIP-Read for text records and renders only the default `addr()`), plus an optional "How others see you" toggle that runs live `getEnsText` lookups via viem's universal resolver to prove CCIP-Read is reaching third-party clients.
 
-**Architecture:** One read-only API endpoint (`GET /agents/:agentId/records-preview`) joins our agents row + the live `gateway_announcements` row + a static list of standard ENSIP-18 keys, and returns one entry per known key (text + address) with the value (or empty) and a `served` boolean indicating whether the gateway will currently return a non-empty value for that key. The dashboard renders a grouped table (Addresses / Profile / Agent / Stealth / Other) with empty rows showing "—" and a CTA back to the records form. The optional "How others see you" toggle is a client-side switch that swaps the data source to live viem `getEnsText` / `getEnsAddress` calls hitting mainnet — slow, but the proof-of-life UX matters when judges ask "does this actually resolve from a third-party client?"
+**Architecture:** One read-only API endpoint (`GET /agents/:agentId/records-preview`) joins our agents row + the live `gateway_announcements` row + a static list of standard ENSIP-18 keys + a regex match for ENSIP-25 verification keys, and returns one entry per known key (text + address) with the value (or empty) and a `served` boolean indicating whether the gateway will currently return a non-empty value for that key. The dashboard renders a grouped table (Addresses / Profile / Agent / Stealth / Verification / Other) with empty rows showing "—" and a CTA back to the records form. The optional "How others see you" toggle is a client-side switch that swaps the data source to live viem `getEnsText` / `getEnsAddress` calls hitting mainnet — slow, but the proof-of-life UX matters when judges ask "does this actually resolve from a third-party client?"
 
 **Tech Stack:** TypeScript 5.x strict, Hono on Vercel (api), Next.js 16 App Router (dashboard), SWR for client data, viem 2.x (`createPublicClient` + `getEnsText` + `getEnsAddress` for the live toggle), `@open-agents/db` for the Postgres reads, vitest for unit/integration tests. **No new packages added.** No KMS, contracts, or resolver changes — this is a pure read-side feature shipping on top of Plan 5's existing CCIP-Read pipeline.
 
@@ -73,7 +73,7 @@ The engineer must have available:
 
 ## Plan overview
 
-The owner-facing dashboard already lets you SET text records via `RecordsForm`, but there is no view that shows what the gateway is actually serving. Plan 7 closes that gap. The page is read-only, fast, and grouped by category (Addresses / Profile / Agent metadata / Stealth / Other) so the owner can spot empty profile fields at a glance.
+The owner-facing dashboard already lets you SET text records via `RecordsForm`, but there is no view that shows what the gateway is actually serving. Plan 7 closes that gap. The page is read-only, fast, and grouped by category (Addresses / Profile / Agent metadata / Stealth / Verification / Other) so the owner can spot empty profile fields at a glance.
 
 The data source is our own Postgres (one query against the agents row + one for the live `gateway_announcements`), not the gateway over CCIP-Read — that round trip is slow and adds nothing for the owner's view. The optional toggle DOES use viem's universal resolver to prove the public path works end-to-end.
 
@@ -87,6 +87,8 @@ The data source is our own Postgres (one query against the agents row + one for 
 - Create: `apps/api/tests/records-preview.test.ts`
 
 **Decision: server-side catalogue, not client-side.** The list of "standard ENSIP-18 keys we always show even when empty" lives in `apps/api/src/lib/records-preview.ts`. Putting it server-side keeps the dashboard a thin renderer and means future additions (e.g. when ENSIP-19 lands) ship with a single api deploy — no need to bump dashboard + api in lockstep.
+
+**Decision: ENSIP-25 keys are matched by regex, not catalogued.** The `agent-registration[<registry>][<agentId>]` format is parameterized over two dynamic segments, so a static catalogue entry doesn't fit. The builder runs every key in `text_records` through `ENSIP25_KEY_REGEX` and emits one row per match with `category='verification'` and a parsed description showing the registry + agentId. Existing Plan 4 records like `agent-registration[8453][46488]` will be picked up automatically, even though that's our simplified `[chainId]` format rather than the spec's full ERC-7930 interoperable address — the regex tolerates both because it doesn't try to validate the inner format.
 
 **Decision: `served` boolean is computed, not stored.** The api computes `served = value.length > 0` per row (with a special case for `stealth-payload` — see Step 1.2). This avoids drift between what the gateway actually returns and what the preview claims.
 
@@ -113,6 +115,8 @@ describe('GET /agents/:agentId/records-preview', () => {
         name: 'Demo Agent',
         description: 'Hackathon demo',
         'custom.key': 'custom-value',
+        // ENSIP-25 verification key (Plan 4 simplified format).
+        'agent-registration[8453][46488]': '1',
       },
     })
     agentId = seeded.agentId
@@ -132,6 +136,22 @@ describe('GET /agents/:agentId/records-preview', () => {
     const avatar = body.records.find((r) => r.key === 'avatar')
     expect(name).toMatchObject({ served: true, value: 'Demo Agent' })
     expect(avatar).toMatchObject({ served: false, value: '' })
+  })
+
+  it('classifies ENSIP-25 agent-registration keys under the verification category', async () => {
+    const res = await app.request(`/agents/${agentId}/records-preview`, {
+      headers: { Authorization: authHeader },
+    })
+    const body = (await res.json()) as RecordsPreviewResponse
+    const verif = body.records.find((r) => r.key === 'agent-registration[8453][46488]')
+    expect(verif).toBeDefined()
+    expect(verif).toMatchObject({
+      category: 'verification',
+      served: true,
+      value: '1',
+    })
+    expect(verif!.description).toMatch(/registry=8453/)
+    expect(verif!.description).toMatch(/agentId=46488/)
   })
 
   it('rejects unauthenticated callers', async () => {
@@ -170,7 +190,7 @@ Create `apps/api/src/lib/records-preview.ts`:
  * Categories drive the UI grouping in records-preview-table.tsx but live
  * here so the catalogue stays a single source of truth.
  */
-export type RecordCategory = 'profile' | 'agent' | 'stealth' | 'other'
+export type RecordCategory = 'profile' | 'agent' | 'stealth' | 'verification' | 'other'
 
 export interface StandardKey {
   key: string
@@ -204,6 +224,34 @@ export const STANDARD_KEYS: readonly StandardKey[] = [
   { key: 'stealth-payload', category: 'stealth', description: 'Per-query stealth issuance (synthesized at read time)' },
 ] as const
 
+/**
+ * ENSIP-25 verification key matcher.
+ *
+ * Format: `agent-registration[<registry>][<agentId>]` where `<registry>` is
+ * an ERC-7930 interoperable address and `<agentId>` is a registry-defined
+ * id. The value is any non-empty string (recommended `"1"`); only presence
+ * matters.
+ *
+ * Because both segments are dynamic, we can't put a single static entry in
+ * STANDARD_KEYS. Instead, the builder matches this regex and renders one
+ * row per matching key with category='verification' and a parsed
+ * description that surfaces the registry + agentId in the UI.
+ */
+export const ENSIP25_KEY_REGEX = /^agent-registration\[([^\]]+)\]\[([^\]]+)\]$/
+
+export interface ParsedEnsip25Key {
+  /** ERC-7930 registry address as encoded in the key. */
+  registry: string
+  /** Registry-defined agent identifier (string; the spec doesn't constrain to numeric). */
+  agentId: string
+}
+
+export function parseEnsip25Key(key: string): ParsedEnsip25Key | null {
+  const m = ENSIP25_KEY_REGEX.exec(key)
+  if (!m) return null
+  return { registry: m[1]!, agentId: m[2]! }
+}
+
 export interface PreviewRecord {
   key: string
   value: string
@@ -218,7 +266,9 @@ export interface PreviewRecord {
  * Build the full preview row set for one agent.
  *
  * - Iterate STANDARD_KEYS and look up each value in agent.text_records.
- * - For every custom key in text_records that's NOT in STANDARD_KEYS,
+ * - Match every key against ENSIP25_KEY_REGEX and emit a "verification" row
+ *   per match (these are dynamically-named keys, can't be in STANDARD_KEYS).
+ * - For every other custom key not in STANDARD_KEYS and not ENSIP-25,
  *   append an "other" row.
  * - stealth-payload is a special case: it's synthesized by the gateway on
  *   every read, so served=true if stealth-meta is set, regardless of the
@@ -248,18 +298,33 @@ export function buildRecordsPreview(textRecords: Record<string, string>): Previe
     }
   })
 
-  const customRows: PreviewRecord[] = Object.entries(textRecords)
-    .filter(([k]) => !standardKeySet.has(k))
-    .map(([key, value]) => ({
-      key,
-      value,
-      category: 'other',
-      description: 'Custom key',
-      served: value.length > 0,
-      sourceNote: 'served from text_records',
-    }))
+  const verificationRows: PreviewRecord[] = []
+  const otherRows: PreviewRecord[] = []
+  for (const [key, value] of Object.entries(textRecords)) {
+    if (standardKeySet.has(key)) continue
+    const parsed = parseEnsip25Key(key)
+    if (parsed) {
+      verificationRows.push({
+        key,
+        value,
+        category: 'verification',
+        description: `ENSIP-25 registry attestation — registry=${parsed.registry} agentId=${parsed.agentId}`,
+        served: value.length > 0,
+        sourceNote: 'served from text_records',
+      })
+    } else {
+      otherRows.push({
+        key,
+        value,
+        category: 'other',
+        description: 'Custom key',
+        served: value.length > 0,
+        sourceNote: 'served from text_records',
+      })
+    }
+  }
 
-  return [...standardRows, ...customRows]
+  return [...standardRows, ...verificationRows, ...otherRows]
 }
 ```
 
