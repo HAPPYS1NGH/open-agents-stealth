@@ -6,7 +6,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().default(3002),
   DATABASE_URL: z.string().url(),
   BASE_RPC_URL: z.string().url().default('https://mainnet.base.org'),
-  SCAN_LOOKBACK_BLOCKS: z.coerce.number().int().positive().default(3000),
+  SCAN_LOOKBACK_BLOCKS: z.coerce.number().int().positive().default(50_000),
   SCANNER_WEBHOOK: z
     .preprocess(emptyAsUndefined, z.enum(['on', 'off']).optional())
     .transform((v) => v ?? 'on'),
