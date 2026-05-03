@@ -12,7 +12,7 @@
     "lint": "echo 'no-op'"
   },
   "dependencies": {
-    "@hono/node-server": "^1.13.7",
+    "@hono/node-server": "1.13.7",
     "@hono/zod-validator": "^0.4.1",
     "@open-agents/auth": "workspace:*",
     "@open-agents/crypto": "workspace:*",
