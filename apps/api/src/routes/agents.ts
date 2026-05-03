@@ -4,8 +4,12 @@ import { z } from 'zod'
 import { jwtMiddleware } from '@open-agents/auth'
 import {
   findAgentById,
+  findPaymentById,
   insertAgent,
+  listPaymentsByAgent,
   updateAgent,
+  upsertReceipt,
+  type PaymentWithReceipt,
 } from '@open-agents/db'
 import {
   isAuthorizedForAgent,
@@ -405,6 +409,140 @@ agentsRoute.post(
       id: updated.id,
       viewKeyEncrypted: updated.viewKeyEncrypted,
       textRecords: updated.textRecords,
+    })
+  },
+)
+
+interface PaymentResponseRow {
+  id: string
+  agentId: string
+  stealthAddress: string
+  ephemeralPub: string
+  txHash: string
+  logIndex: number
+  blockNumber: string
+  tokenAddress: string
+  amount: string
+  fromAddress: string
+  detectedAt: string
+  receipt: {
+    id: string
+    confirmedByRecipient: boolean
+    eip712Payload: string | null
+    eip712Signature: string | null
+    appendedResponseTx: string | null
+    updatedAt: string
+  } | null
+}
+
+function shapePayment(row: PaymentWithReceipt): PaymentResponseRow {
+  return {
+    id: row.id,
+    agentId: row.agentId,
+    stealthAddress: row.stealthAddress,
+    ephemeralPub: row.ephemeralPub,
+    txHash: row.txHash,
+    logIndex: row.logIndex,
+    blockNumber: row.blockNumber,
+    tokenAddress: row.tokenAddress,
+    amount: row.amount,
+    fromAddress: row.fromAddress,
+    detectedAt: row.detectedAt.toISOString(),
+    receipt: row.receipt
+      ? {
+          id: row.receipt.id,
+          confirmedByRecipient: row.receipt.confirmedByRecipient,
+          eip712Payload: row.receipt.eip712Payload,
+          eip712Signature: row.receipt.eip712Signature,
+          appendedResponseTx: row.receipt.appendedResponseTx,
+          updatedAt: row.receipt.updatedAt.toISOString(),
+        }
+      : null,
+  }
+}
+
+/**
+ * GET /agents/:id/payments
+ *
+ * Lists payments for the agent owner, newest-first. Cursored on
+ * `?afterDetectedAt=ISO` for SSE-driven live feeds; capped at limit=200.
+ */
+agentsRoute.get('/agents/:id/payments', jwtMiddleware(env.JWT_SECRET), async (c) => {
+  const claims = c.var.jwtClaims
+  const ownerEoa = ((claims.ownerEoa as string) ?? claims.sub).toLowerCase()
+  const id = c.req.param('id')
+
+  const agent = await findAgentById(db, id)
+  if (!agent) return c.json({ error: 'Agent not found' }, 404)
+  if (agent.ownerEoa !== ownerEoa) return c.json({ error: 'Forbidden' }, 403)
+
+  const url = new URL(c.req.url)
+  const limit = Math.min(Math.max(Number(url.searchParams.get('limit') ?? 50), 1), 200)
+  const afterRaw = url.searchParams.get('afterDetectedAt')
+  const after = afterRaw ? new Date(afterRaw) : undefined
+  if (after && Number.isNaN(after.getTime())) {
+    return c.json({ error: 'afterDetectedAt must be ISO-8601' }, 400)
+  }
+
+  const rows = await listPaymentsByAgent(db, agent.id, { limit, afterDetectedAt: after })
+  return c.json({
+    agentId: agent.id,
+    count: rows.length,
+    payments: rows.map(shapePayment),
+  })
+})
+
+const confirmReceiptSchema = z.object({
+  confirmed: z.boolean(),
+  eip712Payload: z.string().optional(),
+  eip712Signature: z.string().optional(),
+})
+
+/**
+ * POST /agents/:id/receipts/:paymentId/confirm
+ *
+ * UPSERTs the per-payment receipt with the supplied confirmed flag plus
+ * optional eip712Payload + eip712Signature (Plan 7 fields, accepted but
+ * not yet broadcast on-chain).
+ */
+agentsRoute.post(
+  '/agents/:id/receipts/:paymentId/confirm',
+  jwtMiddleware(env.JWT_SECRET),
+  zValidator('json', confirmReceiptSchema),
+  async (c) => {
+    const claims = c.var.jwtClaims
+    const ownerEoa = ((claims.ownerEoa as string) ?? claims.sub).toLowerCase()
+    const id = c.req.param('id')
+    const paymentId = c.req.param('paymentId')
+    const body = c.req.valid('json')
+
+    const agent = await findAgentById(db, id)
+    if (!agent) return c.json({ error: 'Agent not found' }, 404)
+    if (agent.ownerEoa !== ownerEoa) return c.json({ error: 'Forbidden' }, 403)
+
+    const payment = await findPaymentById(db, paymentId)
+    if (!payment || payment.agentId !== agent.id) {
+      return c.json({ error: 'Payment not found' }, 404)
+    }
+
+    const receipt = await upsertReceipt(db, {
+      paymentId,
+      agentId: agent.id,
+      confirmedByRecipient: body.confirmed,
+      eip712Payload: body.eip712Payload ?? null,
+      eip712Signature: body.eip712Signature ?? null,
+    })
+
+    return c.json({
+      receipt: {
+        id: receipt.id,
+        paymentId: receipt.paymentId,
+        confirmedByRecipient: receipt.confirmedByRecipient,
+        eip712Payload: receipt.eip712Payload,
+        eip712Signature: receipt.eip712Signature,
+        appendedResponseTx: receipt.appendedResponseTx,
+        updatedAt: receipt.updatedAt.toISOString(),
+      },
     })
   },
 )
