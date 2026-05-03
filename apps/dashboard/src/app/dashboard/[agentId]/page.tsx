@@ -79,14 +79,22 @@ export default function AgentSettingsPage({ params }: PageProps) {
             </Link>
           </p>
         </div>
-        <Link
-          href={`https://app.ens.domains/${fullName}`}
-          target="_blank"
-          rel="noreferrer"
-          className="text-xs underline"
-        >
-          Preview ENS profile
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link
+            href={`/dashboard/${agentId}/payments`}
+            className="text-xs underline"
+          >
+            View payments →
+          </Link>
+          <Link
+            href={`https://app.ens.domains/${fullName}`}
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs underline"
+          >
+            Preview ENS profile
+          </Link>
+        </div>
       </div>
 
       <Card>

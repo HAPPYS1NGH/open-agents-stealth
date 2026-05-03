@@ -66,3 +66,39 @@ export interface TreasuryResponse {
   id: string
   treasurySafeAddress: string
 }
+
+export interface ReceiptResponse {
+  id: string
+  confirmedByRecipient: boolean
+  eip712Payload: string | null
+  eip712Signature: string | null
+  appendedResponseTx: string | null
+  updatedAt: string
+}
+
+export interface PaymentResponse {
+  id: string
+  agentId: string
+  stealthAddress: string
+  ephemeralPub: string
+  txHash: string
+  logIndex: number
+  blockNumber: string
+  tokenAddress: string
+  amount: string
+  fromAddress: string
+  detectedAt: string
+  receipt: ReceiptResponse | null
+}
+
+export interface PaymentsListResponse {
+  agentId: string
+  count: number
+  payments: PaymentResponse[]
+}
+
+export interface ConfirmReceiptBody {
+  confirmed: boolean
+  eip712Payload?: string
+  eip712Signature?: string
+}
