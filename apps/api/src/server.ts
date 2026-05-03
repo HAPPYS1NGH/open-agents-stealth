@@ -6,6 +6,7 @@ import { createDb } from '@open-agents/db'
 import { authRoute } from './routes/auth.js'
 import { meRoute } from './routes/me.js'
 import { agentsRoute } from './routes/agents.js'
+import { paymentsStreamRoute } from './routes/payments-stream.js'
 
 const app = new Hono()
 
@@ -15,6 +16,7 @@ app.get('/health', (c) => c.json({ ok: true, service: 'api' }))
 app.route('/', authRoute)
 app.route('/', meRoute)
 app.route('/', agentsRoute)
+app.route('/', paymentsStreamRoute)
 
 export const db = createDb(env.DATABASE_URL)
 
