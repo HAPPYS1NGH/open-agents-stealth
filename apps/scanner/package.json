@@ -8,6 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "worker": "tsx src/worker.ts",
+    "seed:demo": "tsx scripts/seed-demo-payment.ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "echo 'no-op'"
