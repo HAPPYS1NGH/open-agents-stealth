@@ -33,8 +33,11 @@ export { base }
  * mainnet OFF the wagmi chain list — adding it would prompt RainbowKit to
  * surface a chain-switch UI mid-payment.
  */
+// Cloudflare's eth-rpc is the most browser-reliable default (good CORS,
+// no rate-limit on light usage, no API key needed). Override via
+// NEXT_PUBLIC_MAINNET_RPC_URL for higher-volume traffic (Alchemy/Infura).
 const mainnetRpc =
-  process.env['NEXT_PUBLIC_MAINNET_RPC_URL'] ?? 'https://eth.llamarpc.com'
+  process.env['NEXT_PUBLIC_MAINNET_RPC_URL'] ?? 'https://cloudflare-eth.com'
 
 export const ensReadClient = createPublicClient({
   chain: mainnet,
