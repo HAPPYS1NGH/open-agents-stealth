@@ -10,7 +10,7 @@ import { computeStartBlock, fetchActiveScanTargets } from '../src/lib/checkpoint
 const DB_URL = 'postgres://open_agents:open_agents_dev@localhost:5434/open_agents'
 process.env['DATABASE_URL'] = DB_URL
 const USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913'
-const RUN_TAG = Date.now().toString(16).padStart(8, '0')
+const RUN_TAG = Date.now().toString(16).slice(-8)
 
 let db: ReturnType<typeof createDb>
 let agentWithMeta: string

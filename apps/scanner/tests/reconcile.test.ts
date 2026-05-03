@@ -18,7 +18,7 @@ let agentRowId: string
 
 // Make all addresses + ephemeral keys unique per test run so re-runs against
 // the persisted Postgres don't collide with prior data.
-const RUN_TAG = Date.now().toString(16).padStart(8, '0')
+const RUN_TAG = Date.now().toString(16).slice(-8)
 function unique(prefix: string, hexLen: number): `0x${string}` {
   // hexLen is in hex characters (not bytes). Pad with run tag + zeros to fit.
   const body = (RUN_TAG + prefix).padEnd(hexLen, '0').slice(0, hexLen)

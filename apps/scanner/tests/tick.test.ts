@@ -13,7 +13,7 @@ process.env['DATABASE_URL'] = DB_URL
 process.env['SCANNER_RPC'] = 'off'
 process.env['CRON_SECRET'] = ''
 
-const RUN_TAG = Date.now().toString(16).padStart(8, '0')
+const RUN_TAG = Date.now().toString(16).slice(-8)
 
 let db: ReturnType<typeof createDb>
 let agentRowId: string

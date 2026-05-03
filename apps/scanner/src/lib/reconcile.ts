@@ -1,4 +1,4 @@
-import { inArray } from 'drizzle-orm'
+import { desc, inArray } from 'drizzle-orm'
 import {
   gatewayAnnouncements,
   insertPayment,
@@ -50,13 +50,37 @@ export async function reconcileLogsToPayments(
     })
     .from(gatewayAnnouncements)
     .where(inArray(gatewayAnnouncements.stealthAddress, Array.from(stealthSet)))
+    .orderBy(desc(gatewayAnnouncements.generatedAt))
 
-  const lookup = new Map<string, { agentId: string; ephemeralPub: string }>()
+  // Group by stealth_address so we can detect collisions explicitly. The
+  // gateway should never issue the same stealth address to two agents (the
+  // ECDH derivation makes collision astronomically unlikely), but the DB
+  // doesn't enforce uniqueness across agents — only per (agent, ephemeral_pub).
+  // If we silently last-write-wins, a misissuance would attribute payments to
+  // the wrong agent without any warning.
+  const grouped = new Map<string, Array<{ agentId: string; ephemeralPub: string }>>()
   for (const r of announcementRows) {
-    lookup.set(r.stealthAddress.toLowerCase(), {
-      agentId: r.agentId,
-      ephemeralPub: r.ephemeralPub,
-    })
+    const key = r.stealthAddress.toLowerCase()
+    const list = grouped.get(key) ?? []
+    list.push({ agentId: r.agentId, ephemeralPub: r.ephemeralPub })
+    grouped.set(key, list)
+  }
+  const lookup = new Map<string, { agentId: string; ephemeralPub: string }>()
+  for (const [stealthAddress, candidates] of grouped) {
+    if (candidates.length > 1) {
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          msg: 'stealth_address_collision',
+          stealthAddress,
+          agentIds: candidates.map((c) => c.agentId),
+          chosenAgentId: candidates[0]!.agentId,
+          note: 'Picking most recent issuance (orderBy desc generatedAt).',
+        }),
+      )
+    }
+    // candidates[0] is the most-recently issued (orderBy generated_at desc).
+    lookup.set(stealthAddress, candidates[0]!)
   }
 
   let inserted = 0

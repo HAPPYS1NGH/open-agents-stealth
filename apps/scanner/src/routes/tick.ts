@@ -7,13 +7,17 @@ export const tickRoute = new Hono()
 
 /**
  * Per Vercel docs, the cron-injected header is `Authorization: Bearer
- * ${process.env.CRON_SECRET}`. Local invocations from tests pass the same
- * shape via supertest. If CRON_SECRET is unset (typical for local dev), the
- * guard short-circuits — that's intentional so `curl localhost:3002/tick`
- * just works in development.
+ * ${process.env.CRON_SECRET}`. Local dev (NODE_ENV !== 'production') with
+ * CRON_SECRET unset short-circuits the guard so `curl localhost:3002/tick`
+ * just works. In production, an unset CRON_SECRET REJECTS every request —
+ * a deploy that forgets the secret should fail closed, not open the cron
+ * endpoint to the world.
  */
 function isAuthorized(authHeader: string | undefined): boolean {
-  if (!env.CRON_SECRET) return true
+  if (!env.CRON_SECRET) {
+    if (process.env['NODE_ENV'] === 'production') return false
+    return true
+  }
   if (!authHeader) return false
   return authHeader === `Bearer ${env.CRON_SECRET}`
 }
