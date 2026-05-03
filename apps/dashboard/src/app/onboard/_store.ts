@@ -9,6 +9,8 @@ export interface WizardState {
   subnameLabel: string | null
 
   viewKeyHex: string | null
+  spendPrivKey: `0x${string}` | null
+  stealthMeta: `0x${string}` | null
 
   agentIdOnchain: string | null
   registerTxHash: `0x${string}` | null
@@ -18,6 +20,8 @@ export interface WizardState {
 
   setSubname: (id: string, label: string) => void
   setViewKey: (hex: string) => void
+  setSpendKey: (key: `0x${string}`) => void
+  setStealthMeta: (meta: `0x${string}`) => void
   setOnchain: (agentId: string, txHash: `0x${string}`) => void
   setTreasury: (safeAddress: `0x${string}`, deployTxHash: `0x${string}`) => void
   next: () => void
@@ -29,6 +33,8 @@ export const useWizardStore = create<WizardState>((set) => ({
   agentRowId: null,
   subnameLabel: null,
   viewKeyHex: null,
+  spendPrivKey: null,
+  stealthMeta: null,
   agentIdOnchain: null,
   registerTxHash: null,
   treasurySafeAddress: null,
@@ -36,6 +42,8 @@ export const useWizardStore = create<WizardState>((set) => ({
 
   setSubname: (id, label) => set({ agentRowId: id, subnameLabel: label }),
   setViewKey: (hex) => set({ viewKeyHex: hex }),
+  setSpendKey: (key) => set({ spendPrivKey: key }),
+  setStealthMeta: (meta) => set({ stealthMeta: meta }),
   setOnchain: (agentId, txHash) => set({ agentIdOnchain: agentId, registerTxHash: txHash }),
   setTreasury: (safeAddress, deployTxHash) => set({ treasurySafeAddress: safeAddress, treasuryDeployTxHash: deployTxHash }),
 
@@ -52,6 +60,8 @@ export const useWizardStore = create<WizardState>((set) => ({
       agentRowId: null,
       subnameLabel: null,
       viewKeyHex: null,
+      spendPrivKey: null,
+      stealthMeta: null,
       agentIdOnchain: null,
       registerTxHash: null,
       treasurySafeAddress: null,

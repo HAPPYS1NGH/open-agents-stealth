@@ -4,19 +4,23 @@ import { useState } from 'react'
 import { useSignMessage } from 'wagmi'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
 import { useWizardStore } from '../_store'
 import {
   STEALTH_DERIVATION_MESSAGE,
-  deriveViewKeyStub,
-  packStubViewKeyForApi,
-} from '@/lib/stealth-stub'
+  deriveStealthKeysFromSignatureBrowser,
+} from '@/lib/stealth-derive-client'
 import { getApiClient } from '@/lib/api-client'
-import type { AgentResponse } from '@/types/api'
 
 export function Step2ViewKey() {
-  const { agentRowId, setViewKey, next } = useWizardStore()
+  const { agentRowId, setViewKey, setSpendKey, setStealthMeta, next } = useWizardStore()
   const { signMessageAsync } = useSignMessage()
   const [isWorking, setIsWorking] = useState(false)
 
@@ -27,16 +31,25 @@ export function Step2ViewKey() {
     }
     setIsWorking(true)
     try {
-      const sig = await signMessageAsync({ message: STEALTH_DERIVATION_MESSAGE })
-      const viewKeyHex = deriveViewKeyStub(sig)
-      const ciphertext = packStubViewKeyForApi(viewKeyHex)
+      const sig = (await signMessageAsync({
+        message: STEALTH_DERIVATION_MESSAGE,
+      })) as `0x${string}`
 
-      await getApiClient().patch<AgentResponse>(`/agents/${agentRowId}`, {
-        viewKeyEncrypted: ciphertext,
-      })
+      const derived = deriveStealthKeysFromSignatureBrowser(sig)
 
-      setViewKey(viewKeyHex)
-      toast.success('View key derived (Plan 3 stub)')
+      await getApiClient().post<{ id: string; viewKeyEncrypted: string }>(
+        `/agents/${agentRowId}/view-key`,
+        {
+          viewKey: derived.viewPrivKey,
+          stealthMeta: derived.stealthMetaAddress,
+        },
+      )
+
+      setSpendKey(derived.spendPrivKey)
+      setStealthMeta(derived.stealthMetaAddress)
+      setViewKey(derived.viewPrivKey)
+
+      toast.success('Stealth keys derived and registered')
       next()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
@@ -48,13 +61,11 @@ export function Step2ViewKey() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          Derive your stealth view key <Badge variant="secondary">stub</Badge>
-        </CardTitle>
+        <CardTitle>Derive your stealth keys</CardTitle>
         <CardDescription>
-          Sign a fixed message with your wallet — no gas, no transaction. The signature deterministically
-          derives a 32-byte placeholder view key. The real ERC-5564 derivation lands in the next release;
-          your subname will keep working through the upgrade.
+          Sign a fixed message with your wallet — no gas, no transaction. Your signature deterministically
+          derives a spend key (kept only in your browser), a view key (encrypted server-side so we can scan
+          incoming payments), and the public meta-address we publish under your subname.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -62,8 +73,8 @@ export function Step2ViewKey() {
           {STEALTH_DERIVATION_MESSAGE}
         </p>
         <p className="text-xs text-muted-foreground">
-          Re-signing the same message in the same wallet always produces the same key. If you ever lose your
-          local copy, return here and re-derive.
+          Re-signing the same message with the same wallet always produces the same keys. If you ever lose
+          your <code>.env</code>, return to this step and re-derive.
         </p>
       </CardContent>
       <CardFooter className="justify-end">
