@@ -6,6 +6,7 @@ import {
   jsonb,
   boolean,
   integer,
+  numeric,
   index,
   uniqueIndex,
 } from 'drizzle-orm/pg-core'
@@ -133,3 +134,121 @@ export const gatewayAnnouncements = pgTable(
 
 export type GatewayAnnouncement = typeof gatewayAnnouncements.$inferSelect
 export type NewGatewayAnnouncement = typeof gatewayAnnouncements.$inferInsert
+
+/**
+ * payments — one row per detected USDC transfer to a stealth address.
+ *
+ * Written by the scanner worker (Vercel Cron + Alchemy Notify webhook).
+ * Append-only: rows are never UPDATEd after insertion. Receipt state lives
+ * in the separate `receipts` table.
+ *
+ * agent_id          FK into agents.id. Non-null because every payment must
+ *                   be reconciled to an agent via the announcement record.
+ *
+ * stealth_address   The 0x… 20-byte EVM address that received the USDC.
+ *                   Stored lowercased so equality checks are deterministic.
+ *
+ * ephemeral_pub     33-byte compressed secp256k1 ephemeral pubkey from the
+ *                   gateway issuance. Denormalized so the dashboard does not
+ *                   need to join gateway_announcements just to render a row.
+ *
+ * tx_hash           The USDC.Transfer tx hash. Used with log_index as the
+ *                   uniqueness key — same payment cannot be inserted twice.
+ *
+ * log_index         Index of the Transfer event in the tx receipt.
+ *
+ * block_number      Base mainnet block number; lets the scanner cursor skip
+ *                   ahead and the dashboard sort by chain time.
+ *
+ * token_address     The 0x… ERC-20 contract that emitted the Transfer.
+ *                   v1: always Base USDC (0x833589fCD…).
+ *
+ * amount            Raw token units (numeric(78,0) accommodates uint256).
+ *                   USDC has 6 decimals; the dashboard formats display-side.
+ *
+ * from_address      The Transfer.from address; surfaced in the dashboard
+ *                   as the "sender" and used by Plan 7 receipts.
+ *
+ * detected_at       Server-side timestamp of when the scanner inserted the
+ *                   row. Distinct from block timestamp.
+ */
+export const payments = pgTable(
+  'payments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    agentId: uuid('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+    stealthAddress: text('stealth_address').notNull(),
+    ephemeralPub: text('ephemeral_pub').notNull(),
+    txHash: text('tx_hash').notNull(),
+    logIndex: integer('log_index').notNull(),
+    blockNumber: numeric('block_number', { precision: 78, scale: 0 }).notNull(),
+    tokenAddress: text('token_address').notNull(),
+    amount: numeric('amount', { precision: 78, scale: 0 }).notNull(),
+    fromAddress: text('from_address').notNull(),
+    detectedAt: timestamp('detected_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    byAgentTime: index('payments_agent_time_idx').on(
+      table.agentId,
+      table.detectedAt,
+    ),
+    byStealth: index('payments_stealth_idx').on(table.stealthAddress),
+    uniqueLog: uniqueIndex('payments_tx_log_unq').on(table.txHash, table.logIndex),
+  }),
+)
+
+export type Payment = typeof payments.$inferSelect
+export type NewPayment = typeof payments.$inferInsert
+
+/**
+ * receipts — per-payment "publicly confirm" state plus an EIP-712 payload.
+ *
+ * One row per payment, enforced via the unique index on payment_id. Writes
+ * happen from the dashboard (POST /agents/:id/receipts/:paymentId/confirm).
+ *
+ * confirmed_by_recipient  The toggle the agent owner flips in the UI. Plan 5
+ *                         only persists this flag locally; Plan 7 broadcasts
+ *                         appendResponse on-chain when it flips to true.
+ *
+ * eip712_payload          Stringified EIP-712 typed data the dashboard built
+ *                         when the toggle was flipped.
+ *
+ * eip712_signature        65-byte 0x… signature, null until Plan 7 hooks the
+ *                         wallet flow.
+ *
+ * appended_response_tx    Plan 7: tx hash of the appendResponse call on
+ *                         ReputationRegistry. Plan 5 leaves this null.
+ */
+export const receipts = pgTable(
+  'receipts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    paymentId: uuid('payment_id')
+      .notNull()
+      .references(() => payments.id, { onDelete: 'cascade' }),
+    agentId: uuid('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+    confirmedByRecipient: boolean('confirmed_by_recipient').notNull().default(false),
+    eip712Payload: text('eip712_payload'),
+    eip712Signature: text('eip712_signature'),
+    appendedResponseTx: text('appended_response_tx'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    uniquePayment: uniqueIndex('receipts_payment_unq').on(table.paymentId),
+    byAgent: index('receipts_agent_idx').on(table.agentId),
+  }),
+)
+
+export type Receipt = typeof receipts.$inferSelect
+export type NewReceipt = typeof receipts.$inferInsert
