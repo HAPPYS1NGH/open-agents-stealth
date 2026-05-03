@@ -88,6 +88,24 @@ To verify the full mainnet CCIP-Read loop locally against an anvil fork
 
 For per-package development, see each package's README.
 
+### Migrating Plan 3 stub rows after Plan 4 is live
+
+Plan 3 wrote `view_key_encrypted = 'stub:<keccak256(signature)>'` because the
+real Fluidkey derivation hadn't landed yet. Plan 4 changes the wizard so any
+new agent gets a real `v1:`-prefixed envelope. Existing stub rows must be
+re-onboarded (the spend private key was never derived in Plan 3).
+
+```bash
+# 1. See what's still on stubs.
+pnpm node scripts/flag-stub-agents.mjs --list
+
+# 2. Mark them so the dashboard renders "re-derive your keys" banners.
+pnpm node scripts/flag-stub-agents.mjs --notify
+
+# 3. (Later) Once owners have re-derived, soft-delete any holdouts.
+pnpm node scripts/flag-stub-agents.mjs --delete
+```
+
 ## Deploying to Vercel (after Plan 3)
 
 Three Vercel projects, each linked to its own subdirectory:
