@@ -1,5 +1,7 @@
 import { predictStealthSafeAddressWithBytecode } from '@fluidkey/stealth-account-kit'
-import type { Address, Hex } from 'viem'
+import type { Hex } from 'viem'
+
+type Hex20 = `0x${string}`
 
 /**
  * Canonical SafeProxy v1.3.0 creation bytecode.
@@ -37,18 +39,19 @@ export interface PredictStealthSafeOptions {
  * RPC call. Suitable for the gateway hot path (sub-millisecond).
  */
 export function predictStealthSafeAddress(
-  stealthEoa: Address,
+  stealthEoa: Hex20,
   options: PredictStealthSafeOptions = {},
-): Address {
+): Hex20 {
   if (!/^0x[0-9a-fA-F]{40}$/.test(stealthEoa)) {
     throw new Error('predictStealthSafeAddress: stealthEoa must be 20-byte hex address')
   }
+  const owners: Hex20[] = [stealthEoa]
   const { stealthSafeAddress } = predictStealthSafeAddressWithBytecode({
     safeProxyBytecode: SAFE_PROXY_CREATION_CODE_V1_3_0,
     threshold: 1,
-    stealthAddresses: [stealthEoa],
+    stealthAddresses: owners,
     chainId: options.chainId ?? 8453,
     safeVersion: '1.3.0',
   })
-  return stealthSafeAddress as Address
+  return stealthSafeAddress as Hex20
 }
