@@ -5,6 +5,7 @@ import { createDb, insertAgent } from '@open-agents/db'
 process.env['DATABASE_URL'] = 'postgres://open_agents:open_agents_dev@localhost:5434/open_agents'
 process.env['JWT_SECRET'] = 'test-secret-at-least-32-characters-here-xx'
 process.env['BASE_RPC_URL'] = 'http://127.0.0.1:19999'
+process.env['VIEW_KEY_MASTER_KEY'] = '0x' + 'aa'.repeat(32)
 
 const OWNER = '0x0000000000000000000000000000000000000055'
 

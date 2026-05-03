@@ -23,6 +23,9 @@ importers:
       '@open-agents/auth':
         specifier: workspace:*
         version: link:../../packages/auth
+      '@open-agents/crypto':
+        specifier: workspace:*
+        version: link:../../packages/crypto
       '@open-agents/db':
         specifier: workspace:*
         version: link:../../packages/db

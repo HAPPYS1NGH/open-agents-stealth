@@ -12,6 +12,8 @@ import {
   checkRegisterReceipt,
   getAgentWalletInfo,
 } from '../lib/identity-registry.js'
+import { encryptForStorage } from '../lib/view-key-store.js'
+import { isStealthMetaAddress } from '@open-agents/crypto'
 import { env } from '../env.js'
 import { db } from '../server.js'
 
@@ -33,7 +35,13 @@ const patchAgentSchema = z.object({
   agentWalletEoa: z.string().startsWith('0x').length(42).optional(),
   textRecords: z.record(z.string()).optional(),
   treasurySafeAddress: z.string().startsWith('0x').length(42).optional(),
-  viewKeyEncrypted: z.string().optional(),
+  viewKeyEncrypted: z
+    .string()
+    .refine(
+      (v) => v.startsWith('stub:') || v.startsWith('v1:'),
+      'viewKeyEncrypted must start with "stub:" (Plan 3) or "v1:" (Plan 4)',
+    )
+    .optional(),
 })
 
 export const agentsRoute = new Hono()
@@ -309,6 +317,69 @@ agentsRoute.post(
     return c.json({
       id: updated.id,
       treasurySafeAddress: updated.treasurySafeAddress,
+    })
+  },
+)
+
+const viewKeySchema = z.object({
+  viewKey: z
+    .string()
+    .regex(/^0x[0-9a-fA-F]{64}$/, 'viewKey must be 0x-prefixed 32-byte hex'),
+  stealthMeta: z
+    .string()
+    .refine((v) => isStealthMetaAddress(v), 'stealthMeta must be 132-hex per ENSIP-26'),
+})
+
+agentsRoute.post(
+  '/agents/:id/view-key',
+  jwtMiddleware(env.JWT_SECRET),
+  zValidator('json', viewKeySchema),
+  async (c) => {
+    const claims = c.var.jwtClaims
+    const ownerEoa = ((claims.ownerEoa as string) ?? claims.sub).toLowerCase()
+    const id = c.req.param('id')
+    const force = c.req.query('force') === '1'
+    const body = c.req.valid('json')
+
+    const agent = await findAgentById(db, id)
+    if (!agent) return c.json({ error: 'Agent not found' }, 404)
+    if (agent.ownerEoa !== ownerEoa) return c.json({ error: 'Forbidden' }, 403)
+
+    if (
+      agent.viewKeyEncrypted &&
+      agent.viewKeyEncrypted.startsWith('v1:') &&
+      !force
+    ) {
+      return c.json(
+        {
+          error:
+            'Agent already has a v1: view key. Pass ?force=1 to overwrite (DESTRUCTIVE).',
+        },
+        409,
+      )
+    }
+
+    let envelope: string
+    try {
+      envelope = encryptForStorage(body.viewKey)
+    } catch (err) {
+      return c.json({ error: `viewKey encryption failed: ${String(err)}` }, 400)
+    }
+
+    const mergedRecords: Record<string, string> = {
+      ...(agent.textRecords as Record<string, string>),
+      'stealth-meta': body.stealthMeta,
+    }
+
+    const updated = await updateAgent(db, id, {
+      viewKeyEncrypted: envelope,
+      textRecords: mergedRecords,
+    })
+
+    return c.json({
+      id: updated.id,
+      viewKeyEncrypted: updated.viewKeyEncrypted,
+      textRecords: updated.textRecords,
     })
   },
 )

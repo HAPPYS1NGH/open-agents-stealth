@@ -8,6 +8,7 @@ const account = privateKeyToAccount(PK)
 process.env['DATABASE_URL'] = 'postgres://open_agents:open_agents_dev@localhost:5434/open_agents'
 process.env['JWT_SECRET'] = 'test-secret-at-least-32-characters-here-xx'
 process.env['SIWE_DOMAIN'] = 'localhost'
+process.env['VIEW_KEY_MASTER_KEY'] = '0x' + 'aa'.repeat(32)
 
 let app: { fetch: (req: Request) => Promise<Response> }
 

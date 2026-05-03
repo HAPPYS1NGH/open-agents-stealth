@@ -6,6 +6,7 @@ process.env['JWT_SECRET'] = 'test-secret-at-least-32-characters-here-xx'
 // Disable on-chain check in tests by pointing to an unreachable RPC.
 // The route code only invokes isAuthorizedForAgent when agentId is supplied.
 process.env['BASE_RPC_URL'] = 'http://127.0.0.1:19999'
+process.env['VIEW_KEY_MASTER_KEY'] = '0x' + 'aa'.repeat(32)
 
 const OWNER = '0x0000000000000000000000000000000000000077'
 
