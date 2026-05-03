@@ -264,7 +264,6 @@ agentsRoute.post(
 import {
   checkSafeBytecode,
   checkSafeDeployTx,
-  SAFE_L2_SINGLETON_BASE,
 } from '../lib/safe-bytecode.js'
 
 const treasurySchema = z.object({
@@ -304,7 +303,6 @@ agentsRoute.post(
     const codeCheck = await checkSafeBytecode({
       rpcUrl: env.BASE_RPC_URL,
       safeAddress: body.safeAddress,
-      expectedSingleton: SAFE_L2_SINGLETON_BASE,
     })
     if (!codeCheck.ok) {
       return c.json({ error: `Safe bytecode check failed: ${codeCheck.reason}` }, 400)
