@@ -182,6 +182,9 @@ importers:
         specifier: ^3.23.8
         version: 3.25.76
     devDependencies:
+      '@noble/curves':
+        specifier: ^1.6.0
+        version: 1.9.7
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
@@ -6924,7 +6927,7 @@ snapshots:
       semver: 7.7.4
       viem: 2.48.8(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)(zod@3.25.76)
     optionalDependencies:
-      '@noble/curves': 1.9.1
+      '@noble/curves': 1.9.7
       '@peculiar/asn1-schema': 2.7.0
     transitivePeerDependencies:
       - bufferutil

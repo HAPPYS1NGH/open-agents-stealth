@@ -166,3 +166,130 @@ describe('GET /resolve/:sender/:data', () => {
     expect(textValue).toBe('{"name":"Plan 1 stub","description":"Hardcoded; replaced in Plan 4."}')
   })
 })
+
+import { secp256k1 } from '@noble/curves/secp256k1'
+import { bytesToHex } from 'viem'
+import { buildMetaAddress } from '@open-agents/crypto'
+import { listAnnouncementsByAgent } from '@open-agents/db'
+
+const SPEND_PRIV_T7 = '0x' + '11'.repeat(32)
+const VIEW_PRIV_T7 = '0x' + '22'.repeat(32)
+const SPEND_PUB_T7 = bytesToHex(secp256k1.getPublicKey(SPEND_PRIV_T7.slice(2), true))
+const VIEW_PUB_T7 = bytesToHex(secp256k1.getPublicKey(VIEW_PRIV_T7.slice(2), true))
+const META_T7 = buildMetaAddress(SPEND_PUB_T7, VIEW_PUB_T7)
+
+describe('GET /resolve/:sender/:data — stealth-meta path', () => {
+  let stealthAgentId: string
+  let stealthLabel: string
+
+  beforeAll(async () => {
+    stealthLabel = 'stealth-' + Date.now()
+    const db = createDb(DB_URL)
+    const agent = await insertAgent(db, {
+      ownerEoa: '0x0000000000000000000000000000000000000010',
+      subnameLabel: stealthLabel,
+      baseAddr: '0x000000000000000000000000000000000000DEAD',
+      textRecords: { 'stealth-meta': META_T7 },
+    })
+    stealthAgentId = agent.id
+  })
+
+  it('returns a different addr() answer on each call (fresh stealth address)', async () => {
+    const node = namehash(`${stealthLabel}.gabhru.eth`)
+    const innerData = encodeFunctionData({
+      abi: parseAbi(['function addr(bytes32) view returns (address)']),
+      functionName: 'addr',
+      args: [node],
+    })
+    const { dnsEncode } = await import('../src/lib/ens-decode.js')
+    const dns = `0x${Buffer.from(dnsEncode(`${stealthLabel}.gabhru.eth`)).toString('hex')}` as `0x${string}`
+    const resolveCalldata = encodeFunctionData({
+      abi: parseAbi(['function resolve(bytes, bytes)']),
+      functionName: 'resolve',
+      args: [dns, innerData],
+    })
+    const sender = '0x000000000000000000000000000000000000CAFE'
+    const url = `http://localhost/resolve/${sender}/${resolveCalldata}.json`
+
+    const res1 = await app.fetch(new Request(url))
+    const res2 = await app.fetch(new Request(url))
+    expect(res1.status).toBe(200)
+    expect(res2.status).toBe(200)
+    const body1 = (await res1.json()) as { data: `0x${string}` }
+    const body2 = (await res2.json()) as { data: `0x${string}` }
+
+    const [resultBytes1] = decodeAbiParameters(
+      [{ type: 'bytes' }, { type: 'uint64' }, { type: 'bytes' }],
+      body1.data,
+    )
+    const [resultBytes2] = decodeAbiParameters(
+      [{ type: 'bytes' }, { type: 'uint64' }, { type: 'bytes' }],
+      body2.data,
+    )
+    const [addr1] = decodeAbiParameters([{ type: 'address' }], resultBytes1 as `0x${string}`)
+    const [addr2] = decodeAbiParameters([{ type: 'address' }], resultBytes2 as `0x${string}`)
+
+    expect(addr1).not.toBe(addr2)
+    expect((addr1 as string).toLowerCase()).not.toBe('0x000000000000000000000000000000000000dead')
+    expect((addr2 as string).toLowerCase()).not.toBe('0x000000000000000000000000000000000000dead')
+  })
+
+  it('writes one gateway_announcements row per addr() call', async () => {
+    const db = createDb(DB_URL)
+    const before = await listAnnouncementsByAgent(db, stealthAgentId, 100)
+
+    const node = namehash(`${stealthLabel}.gabhru.eth`)
+    const innerData = encodeFunctionData({
+      abi: parseAbi(['function addr(bytes32) view returns (address)']),
+      functionName: 'addr',
+      args: [node],
+    })
+    const { dnsEncode } = await import('../src/lib/ens-decode.js')
+    const dns = `0x${Buffer.from(dnsEncode(`${stealthLabel}.gabhru.eth`)).toString('hex')}` as `0x${string}`
+    const resolveCalldata = encodeFunctionData({
+      abi: parseAbi(['function resolve(bytes, bytes)']),
+      functionName: 'resolve',
+      args: [dns, innerData],
+    })
+    const sender = '0x000000000000000000000000000000000000BEEF'
+    const url = `http://localhost/resolve/${sender}/${resolveCalldata}.json`
+
+    await app.fetch(new Request(url))
+    await new Promise((r) => setTimeout(r, 100))
+
+    const after = await listAnnouncementsByAgent(db, stealthAgentId, 100)
+    expect(after.length).toBe(before.length + 1)
+    const newest = after[0]!
+    expect(newest.viewTag).toBeGreaterThanOrEqual(0)
+    expect(newest.viewTag).toBeLessThanOrEqual(255)
+    expect(newest.ephemeralPub).toMatch(/^0x[0-9a-f]{66}$/)
+  })
+
+  it('text() lookups still return the stealth-meta record verbatim', async () => {
+    const node = namehash(`${stealthLabel}.gabhru.eth`)
+    const innerData = encodeFunctionData({
+      abi: parseAbi(['function text(bytes32, string) view returns (string)']),
+      functionName: 'text',
+      args: [node, 'stealth-meta'],
+    })
+    const { dnsEncode } = await import('../src/lib/ens-decode.js')
+    const dns = `0x${Buffer.from(dnsEncode(`${stealthLabel}.gabhru.eth`)).toString('hex')}` as `0x${string}`
+    const resolveCalldata = encodeFunctionData({
+      abi: parseAbi(['function resolve(bytes, bytes)']),
+      functionName: 'resolve',
+      args: [dns, innerData],
+    })
+    const sender = '0x0000000000000000000000000000000000000DAD'
+    const url = `http://localhost/resolve/${sender}/${resolveCalldata}.json`
+
+    const res = await app.fetch(new Request(url))
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { data: `0x${string}` }
+    const [resultBytes] = decodeAbiParameters(
+      [{ type: 'bytes' }, { type: 'uint64' }, { type: 'bytes' }],
+      body.data,
+    )
+    const [text] = decodeAbiParameters([{ type: 'string' }], resultBytes as `0x${string}`)
+    expect((text as string).toLowerCase()).toBe(META_T7.toLowerCase())
+  })
+})
